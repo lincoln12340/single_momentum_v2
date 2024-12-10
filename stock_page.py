@@ -17,19 +17,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-api_key = os.getenv("OPENAI_API_KEY")
-google_sheet_url = os.getenv("GOOGLE_SHEET_URL")
-private_key = os.getenv("PRIVATE_KEY")
-project_id = os.getenv("PROJECT_ID")
-private_key_id = os.getenv("PRIVATE_KEY_ID")
-client_email = os.getenv("CLIENT_EMAIL")
-client_id = os.getenv("CLIENT_ID")
-auth_uri = os.getenv("AUTH_URI")
-token_uri = os.getenv("TOKEN_URI")
-auth_provider_x509_cert_url = os.getenv("AUTH_PROVIDER_X509_CERT_URL")
-client_x509_cert_url = os.getenv("CLIENT_X509_CERT_URL")
-universe_domain = os.getenv("UNIVERSE_DOMAIN")
-type_sa = os.getenv("TYPE")
+api_key = st.secrets["OPENAI_API_KEY"]
+google_sheet_url = st.secrets["GOOGLE_SHEET_URL"]
+private_key = st.secrets["PRIVATE_KEY"]
+project_id = st.secrets["PROJECT_ID"]
+private_key_id = st.secrets["PRIVATE_KEY_ID"]
+client_email = st.secrets["CLIENT_EMAIL"]
+client_id = st.secrets["CLIENT_ID"]
+auth_uri = st.secrets["AUTH_URI"]
+token_uri = st.secrets["TOKEN_URI"]
+auth_provider_x509_cert_url = st.secrets["AUTH_PROVIDER_X509_CERT_URL"]
+client_x509_cert_url = st.secrets["CLIENT_X509_CERT_URL"]
+universe_domain = st.secrets["UNIVERSE_DOMAIN"]
+type_sa = st.secrets["TYPE"]
 
 print(api_key)
 
