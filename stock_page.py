@@ -1408,6 +1408,8 @@ def calculate_technical_indicators(data,ticker):
         data['MACD_hist'] = macd['MACDh_12_26_9']
         macd_available = True
 
+    print(data['MACD'])
+
     # Calculate OBV
     if 'Close' in data.columns and 'Volume' in data.columns:
         data['OBV'] = ta.obv(data['Close'], data['Volume'])
