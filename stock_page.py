@@ -100,8 +100,7 @@ def stock_page():
         elif timeframe == "1 Year":
             data = yf.download(ticker, period="1y")  # Check if the "Run" button is pressed
 
-        print(data)
-        
+
     
         
         if not technical_analysis and not news_and_events and not fundamental_analysis:
@@ -1408,7 +1407,7 @@ def calculate_technical_indicators(data,ticker):
         data['MACD_hist'] = macd['MACDh_12_26_9']
         macd_available = True
 
-    print(data['MACD'])
+    print(data)
 
     # Calculate OBV
     if 'Close' in data.columns and 'Volume' in data.columns:
