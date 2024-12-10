@@ -99,6 +99,8 @@ def stock_page():
             data = yf.download(ticker, period="6mo")
         elif timeframe == "1 Year":
             data = yf.download(ticker, period="1y")  # Check if the "Run" button is pressed
+
+        print(data)
         
     
         
