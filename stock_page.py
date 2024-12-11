@@ -59,8 +59,8 @@ def stock_page():
         st.subheader("Select Timeframe for Analysis")
         timeframe = st.radio(
             "Choose timeframe:",
-            ("1 Month", "3 Months", "6 Months", "1 Year"),
-            index=3,
+            ( "3 Months", "6 Months", "1 Year"),
+            index=2,
             help="Select the period of historical data for the stock analysis"
         )
         
@@ -91,9 +91,7 @@ def stock_page():
 
     if run_button:
         
-        if timeframe == "1 Month":
-            data = yf.download(ticker, period="1mo")
-        elif timeframe == "3 Months":
+        if timeframe == "3 Months":
             data = yf.download(ticker, period="3mo")
         elif timeframe == "6 Months":
             data = yf.download(ticker, period="6mo")
