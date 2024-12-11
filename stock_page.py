@@ -362,7 +362,6 @@ def stock_page():
                 obv_available = availability['obv_available']
                 adx_available = availability['adx_available']
                 bbands_available = availability['bbands_available']
-                #st.subheader(f"Fundamental Analysis and Technical Analysis for {ticker} over the past {timeframe}")
                 text_fa = convert_to_raw_text(fa_ta_summary)
                 st.write(text_fa)
 
@@ -426,8 +425,7 @@ def stock_page():
                 bbands_available = availability['bbands_available']
                 
                 
-                #st.subheader(f"Fundamental Analysis and Technical Analysis for {ticker} over the past {timeframe}")
-                text_ovr_s = convert_to_raw_text(fa_ta_summary)
+                text_ovr_s = convert_to_raw_text(fa_ta_na_summary)
                 st.write(text_ovr_s)
 
                 st.session_state["run_analysis_complete"] = True
@@ -467,7 +465,7 @@ def stock_page():
                 txt_ovr = txt_conclusion(txt_summary,company)
                 update_progress(progress_bar, 100, 100, "Finalising...")
                     
-            st.subheader(f"News and Events Analysis for {ticker} over the past {timeframe}")
+            
             text = convert_to_raw_text(txt_summary)
             text_ovr = convert_to_raw_text(txt_ovr)
             st.write(text)
