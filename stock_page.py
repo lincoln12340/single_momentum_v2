@@ -31,7 +31,7 @@ client_x509_cert_url = st.secrets["CLIENT_X509_CERT_URL"]
 universe_domain = st.secrets["UNIVERSE_DOMAIN"]
 type_sa = st.secrets["TYPE"]
 
-print(api_key)
+
 
 client = OpenAI(api_key= api_key)
 
@@ -100,8 +100,8 @@ def stock_page():
         elif timeframe == "1 Year":
             data = yf.download(ticker, period="1y")  # Check if the "Run" button is pressed
 
+        data.columns = data.columns.droplevel(1)
 
-    
         
         if not technical_analysis and not news_and_events and not fundamental_analysis:
             st.warning("Please select at least one analysis type to proceed.")
