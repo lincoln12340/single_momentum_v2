@@ -1281,6 +1281,13 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
 
     # Extract and return the AI-generated response
     response = chat_completion.choices[0].message.content
+
+    deleted_vector_store_file = client.beta.vector_stores.files.delete(
+        vector_store_id="vs_ZYQ9Sjvm5XEKMqptEmBOXTLi",
+        file_id=file_id
+    )
+    
+    print("File successfully deleted from vector store.")
     return response 
     
    
