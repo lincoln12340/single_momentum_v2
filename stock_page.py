@@ -99,6 +99,9 @@ def stock_page():
         elif timeframe == "1 Year":
             data = yf.download(ticker, period="1y")  # Check if the "Run" button is pressed
 
+        st.write(data)
+        st.write("hello")
+
         data.columns = data.columns.droplevel(1)
         st.write(data)
 
