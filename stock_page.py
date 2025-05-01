@@ -100,6 +100,7 @@ def stock_page():
             data = yf.download(ticker, period="1y")  # Check if the "Run" button is pressed
 
         data.columns = data.columns.droplevel(1)
+        st.write(data)
 
         
         if not technical_analysis and not news_and_events and not fundamental_analysis:
