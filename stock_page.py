@@ -104,6 +104,7 @@ def stock_page():
 
         data.columns = data.columns.droplevel(1)
         st.write(data)
+        st.write("fuckk youu")
 
         
         if not technical_analysis and not news_and_events and not fundamental_analysis:
