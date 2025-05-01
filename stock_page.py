@@ -13,6 +13,7 @@ import json
 from pydantic import BaseModel
 import os 
 import re
+import anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -410,7 +411,8 @@ def stock_page():
                     file_name = uploaded_file.name
                     fa_summary = FUNDAMENTAL_ANALYSIS(file_content, company, file_name)
                     update_progress(progress_bar, 90, 90, "Finalising...")  
-                    fa_ta_na_summary = merge_ta_fa_na_summary(fa_summary,summary,txt_ovr)
+                    #fa_ta_na_summary = merge_ta_fa_na_summary(fa_summary,summary,txt_ovr)
+                   
                     update_progress(progress_bar, 100, 100, "Analysis Complete...")  
                 
                 
@@ -423,8 +425,8 @@ def stock_page():
                 bbands_available = availability['bbands_available']
                 
                 
-                text_ovr_s = convert_to_raw_text(fa_ta_na_summary)
-                st.write(text_ovr_s)
+                #text_ovr_s = convert_to_raw_text(fa_ta_na_summary)
+                #st.write(text_ovr_s)
 
                 st.session_state["run_analysis_complete"] = True
 
@@ -439,7 +441,7 @@ def stock_page():
                     "data": recent_data.to_dict(orient="records"),
                     "Results": {
                         "Summary": summary if 'summary' in locals() else "",
-                        "Fundamental Analysis & Technical Analysis & News": fa_ta_na_summary if 'fa_ta_summary' in locals() else "",
+                        #"Fundamental Analysis & Technical Analysis & News": fa_ta_na_summary if 'fa_ta_summary' in locals() else "",
                         "SMA Results": sma_result if 'sma_result' in locals() else "",
                         "RSI Results": rsi_result if 'rsi_result' in locals() else "",
                         "MACD Results": macd_result if 'macd_result' in locals() else "",
@@ -448,6 +450,10 @@ def stock_page():
                         "Fundamental Analysis": fa_summary if 'fa_summary' in locals() else ""
                     }
                 }
+
+                fa_ta_na_summary = generate_investment_analysis(gathered_data)
+                st.components.v1.html(html_output, height=700, scrolling=True)
+                
                 st.session_state["gathered_data"] = gathered_data
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
                 st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
@@ -614,6 +620,397 @@ def convert_to_raw_text(text):
 
     return text
 
+def generate_investment_analysis(gathered_data):
+    """
+    Generate an investment analysis HTML using Claude.
+    
+    Parameters:
+    gathered_data (dict): Dictionary containing all the analysis data
+    
+    Returns:
+    str: Complete HTML investment analysis
+    """
+    
+    # Initialize the Anthropic client
+    # You'll need to set your API key using st.secrets or environment variable
+    api_key = st.secrets.get("ANTHROPIC_API_KEY", None)
+    if not api_key:
+        st.error("Please set the ANTHROPIC_API_KEY in your Streamlit secrets.")
+        st.stop()
+        
+    client = anthropic.Anthropic(api_key=api_key)
+    
+    # Create the system prompt with the HTML template
+    system_prompt = """
+    You are an AI model designed to provide technical, fundamental, and news/events-based analysis to deliver actionable, long-term investment insights. Your role is to integrate financial health, competitive positioning, market trends, technical indicators, and relevant news/events into cohesive, data-driven recommendations for strategic, long-term investment strategies.
+
+    The user will provide a JSON object containing all the data needed for analysis, including:
+    - Ticker: The stock ticker symbol
+    - Company: The company name
+    - Timeframe: The analysis timeframe
+    - Technical Analysis: Summary of technical analysis
+    - Fundamental Analysis: Summary of fundamental analysis
+    - News data: News summaries for the company and related companies/sectors
+    - Results: Technical indicator results (Summary, SMA, RSI, MACD, OBV, ADX)
+
+    You must parse this JSON data and use it to create a comprehensive investment report formatted as HTML.
+
+    Follow this HTML template exactly, replacing the placeholder content with information derived from the JSON data:
+
+    ```html
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Comprehensive Investment Analysis</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 0px;
+                background-color: transparent;
+            }
+            .container {
+                background-color: #fff;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                padding: 30px;
+                margin-bottom: 30px;
+            }
+            h1 {
+                color: #2c3e50;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+                margin-top: 0;
+            }
+            h2 {
+                color: #2c3e50;
+                border-left: 5px solid #3498db;
+                padding-left: 15px;
+                margin-top: 30px;
+                background-color: #f8f9fa;
+                padding: 10px 15px;
+                border-radius: 0 5px 5px 0;
+            }
+            h3 {
+                color: #2c3e50;
+                margin-top: 20px;
+                border-bottom: 1px dashed #ddd;
+                padding-bottom: 5px;
+            }
+            .section {
+                margin-bottom: 30px;
+                padding: 20px;
+                background-color: #f9f9f9;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            ul, ol {
+                padding-left: 25px;
+            }
+            ul li, ol li {
+                margin-bottom: 8px;
+            }
+            .recommendation {
+                font-weight: bold;
+                font-size: 1.1em;
+                padding: 15px;
+                margin: 15px 0;
+                border-radius: 5px;
+                text-align: center;
+            }
+            .buy {
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+            .hold {
+                background-color: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeeba;
+            }
+            .sell {
+                background-color: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }
+            .metrics {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 15px;
+                margin: 20px 0;
+            }
+            .metric-card {
+                background-color: #f0f7ff;
+                border-radius: 5px;
+                padding: 15px;
+                flex: 1;
+                min-width: 200px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            .metric-title {
+                font-weight: bold;
+                color: #2980b9;
+                margin-bottom: 5px;
+            }
+            .metric-value {
+                font-size: 1.2em;
+                font-weight: bold;
+            }
+            .chart-container {
+                margin: 20px 0;
+                text-align: center;
+            }
+            .footnote {
+                font-size: 0.9em;
+                font-style: italic;
+                color: #6c757d;
+                margin-top: 30px;
+                padding-top: 15px;
+                border-top: 1px solid #dee2e6;
+            }
+            strong {
+                color: #2980b9;
+            }
+            .highlight {
+                background-color: #ffeaa7;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 20px 0;
+            }
+            th, td {
+                padding: 12px 15px;
+                text-align: left;
+                border-bottom: 1px solid #ddd;
+            }
+            th {
+                background-color: #f2f2f2;
+                font-weight: bold;
+            }
+            tr:hover {
+                background-color: #f5f5f5;
+            }
+            .summary-box {
+                background-color: #e8f4fd;
+                border-left: 4px solid #3498db;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 0 5px 5px 0;
+            }
+            .indicator {
+                margin-bottom: 20px;
+                padding: 15px;
+                border-radius: 5px;
+                background-color: #f8f9fa;
+                border-left: 4px solid #3498db;
+            }
+            .indicator h4 {
+                margin-top: 0;
+                color: #2980b9;
+            }
+            .timeframe {
+                font-weight: bold;
+                color: #2c3e50;
+                background-color: #e8f4fd;
+                padding: 5px 10px;
+                border-radius: 3px;
+                display: inline-block;
+                margin-bottom: 15px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Comprehensive Investment Analysis: [TICKER_PLACEHOLDER] - [COMPANY_PLACEHOLDER]</h1>
+            
+            <div class="timeframe">Analysis Timeframe: [TIMEFRAME_PLACEHOLDER]</div>
+            
+            <div class="section">
+                <h2>Executive Summary</h2>
+                <div class="summary-box">
+                    <p>[SUMMARY_PLACEHOLDER]</p>
+                </div>
+                
+                <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
+                    RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>Fundamental Analysis</h2>
+                <div id="fundamental-analysis">
+                    [FUNDAMENTAL_ANALYSIS_PLACEHOLDER]
+                </div>
+                
+                <h3>Key Financial Metrics</h3>
+                <div class="metrics">
+                    [FINANCIAL_METRICS_PLACEHOLDER]
+                </div>
+                
+                <h3>Valuation Analysis</h3>
+                <table>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Value</th>
+                        <th>Industry Average</th>
+                        <th>Assessment</th>
+                    </tr>
+                    [VALUATION_METRICS_PLACEHOLDER]
+                </table>
+            </div>
+            
+            <div class="section">
+                <h2>Technical Analysis</h2>
+                <div id="technical-analysis">
+                    [TECHNICAL_ANALYSIS_PLACEHOLDER]
+                </div>
+                
+                <h3>Technical Indicators</h3>
+                
+                <div class="indicator">
+                    <h4>SMA (Simple Moving Average)</h4>
+                    <p>[SMA_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                
+                <div class="indicator">
+                    <h4>RSI (Relative Strength Index)</h4>
+                    <p>[RSI_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                
+                <div class="indicator">
+                    <h4>MACD (Moving Average Convergence Divergence)</h4>
+                    <p>[MACD_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                
+                <div class="indicator">
+                    <h4>OBV (On-Balance Volume)</h4>
+                    <p>[OBV_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                
+                <div class="indicator">
+                    <h4>ADX (Average Directional Index)</h4>
+                    <p>[ADX_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                
+                <h3>Support and Resistance Levels</h3>
+                <table>
+                    <tr>
+                        <th>Level Type</th>
+                        <th>Price Point</th>
+                        <th>Strength</th>
+                    </tr>
+                    [SUPPORT_RESISTANCE_PLACEHOLDER]
+                </table>
+            </div>
+            
+            <div class="section">
+                <h2>News and Events Analysis</h2>
+                <div id="news-analysis">
+                    [NEWS_ANALYSIS_PLACEHOLDER]
+                </div>
+                
+                <h3>Recent Significant Events</h3>
+                <ul>
+                    [SIGNIFICANT_EVENTS_PLACEHOLDER]
+                </ul>
+            </div>
+            
+            <div class="section">
+                <h2>Integrated Analysis</h2>
+                <p>[INTEGRATED_ANALYSIS_PLACEHOLDER]</p>
+                
+                <h3>Alignment Assessment</h3>
+                <table>
+                    <tr>
+                        <th>Analysis Type</th>
+                        <th>Outlook</th>
+                        <th>Confidence</th>
+                    </tr>
+                    <tr>
+                        <td>Fundamental</td>
+                        <td>[FUNDAMENTAL_OUTLOOK_PLACEHOLDER]</td>
+                        <td>[FUNDAMENTAL_CONFIDENCE_PLACEHOLDER]</td>
+                    </tr>
+                    <tr>
+                        <td>Technical</td>
+                        <td>[TECHNICAL_OUTLOOK_PLACEHOLDER]</td>
+                        <td>[TECHNICAL_CONFIDENCE_PLACEHOLDER]</td>
+                    </tr>
+                    <tr>
+                        <td>News/Events</td>
+                        <td>[NEWS_OUTLOOK_PLACEHOLDER]</td>
+                        <td>[NEWS_CONFIDENCE_PLACEHOLDER]</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Overall</strong></td>
+                        <td><strong>[OVERALL_OUTLOOK_PLACEHOLDER]</strong></td>
+                        <td><strong>[OVERALL_CONFIDENCE_PLACEHOLDER]</strong></td>
+                    </tr>
+                </table>
+                
+                <h3>Investment Recommendation</h3>
+                <div class="summary-box">
+                    <p><strong>Recommendation:</strong> [DETAILED_RECOMMENDATION_PLACEHOLDER]</p>
+                    
+                    <p><strong>Entry Points:</strong> [ENTRY_POINTS_PLACEHOLDER]</p>
+                    
+                    <p><strong>Exit Strategy:</strong> [EXIT_STRATEGY_PLACEHOLDER]</p>
+                    
+                    <p><strong>Risk Management:</strong> [RISK_MANAGEMENT_PLACEHOLDER]</p>
+                </div>
+            </div>
+            
+            <div class="footnote">
+                <p>This investment analysis was generated on [CURRENT_DATE_PLACEHOLDER], and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    ```
+
+    Parse the provided JSON data and use it to replace the placeholders in the HTML template. Make sure to extract:
+    
+    1. Ticker and Company information for the title
+    2. Timeframe for the timeframe display
+    3. Technical Analysis summary for the technical analysis section
+    4. Technical indicator results (SMA, RSI, MACD, OBV, ADX) for their dedicated sections
+    5. Fundamental Analysis for the fundamental analysis section
+    6. News data for the news analysis section
+    7. Based on all data, determine an appropriate investment recommendation (BUY, HOLD, or SELL)
+    
+    Return the complete HTML document as your response.
+    """
+    
+    # Simply pass the entire gathered_data dictionary as JSON
+    user_message = f"The data to analyse: {json.dumps(gathered_data)}"
+    
+    # Call Claude API to generate the HTML with progress indicator
+    with st.spinner("Generating investment analysis..."):
+        try:
+            response = client.messages.create(
+                model="claude-3-7-sonnet-20250219",  # Use the appropriate Claude model
+                max_tokens=4000,
+                system=system_prompt,
+                messages=[
+                    {"role": "user", "content": user_message}
+                ]
+            )
+            
+            # Extract the response content
+            html_content = response.content[0].text
+            return html_content
+            
+        except Exception as e:
+            st.error(f"Error generating analysis: {e}")
+            return None
 
 def fa_summary_and_news_summary(fa_summary, txt_summary):
 
