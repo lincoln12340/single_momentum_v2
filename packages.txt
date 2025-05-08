@@ -2,3 +2,4 @@ build-essential
 libcurl4-openssl-dev
 libssl-dev
 python3-dev
+pkg-config
