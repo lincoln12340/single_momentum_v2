@@ -51,12 +51,19 @@ def fetch_alpha_vantage_data(ticker, period):
         data.index = pd.to_datetime(data.index)
         
         # Filter based on selected period
+        today = pd.Timestamp.today()
         period_map = {
-            "3 Months": "3M",
-            "6 Months": "6M",
-            "1 Year": "1Y"
+            "3 Months": 90,
+            "6 Months": 180,
+            "1 Year": 365
         }
-        filtered_data = data.last(period_map.get(period, "1Y"))
+        cutoff_days = period_days_map.get(period, 365)
+        cutoff_date = today - pd.Timedelta(days=cutoff_days)
+
+        filtered_data = data[data.index >= cutoff_date]
+
+        
+        #filtered_data = data.last(period_map.get(period, "1Y"))
         
         # Rename columns to match yfinance format
         filtered_data = filtered_data.rename(columns={
@@ -67,7 +74,7 @@ def fetch_alpha_vantage_data(ticker, period):
             '5. volume': 'Volume'
         })
         
-        return filtered_data
+        return filtered_data.sort_index()
     
     except Exception as e:
         st.error(f"Alpha Vantage Error: {str(e)}")
