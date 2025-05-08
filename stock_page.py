@@ -249,7 +249,7 @@ def stock_page():
                 
 
                 recent_data.reset_index(inplace=True)
-                recent_data['Date'] = recent_data['Date'].astype(str)
+                recent_data['Date'] = recent_data['date'].astype(str)
 
                 gathered_data = {
                     "Ticker": ticker,
