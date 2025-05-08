@@ -96,7 +96,7 @@ def stock_page():
         session = curl_requests.Session(impersonate="chrome")
 
     # Create yfinance Ticker object with session
-        stock = yf.Ticker(str(ticker), session=session)
+        stock = yf.Ticker(str(ticker))
     
         # Determine period from timeframe selection
         period_map = {
@@ -111,7 +111,7 @@ def stock_page():
             status_text.text("Fetching data...")
             progress_bar.progress(30)
     
-            data = stock.history(period=selected_period, interval="1d")
+            data = stock.history(period=selected_period, interval="1d",session = session)
     
             progress_bar.progress(100)
             status_text.text("Data loaded successfully.")
