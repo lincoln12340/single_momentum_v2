@@ -15,6 +15,7 @@ import os
 import re
 import anthropic
 from dotenv import load_dotenv
+from curl_cffi import requests
 
 load_dotenv()
 
@@ -90,21 +91,39 @@ def stock_page():
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    if run_button:
+    if run_button and ticker:
+    # Create impersonated session using curl_cffi
+        session = curl_requests.Session(impersonate="chrome")
+
+    # Create yfinance Ticker object with session
+        stock = yf.Ticker(ticker, session=session)
+    
+        # Determine period from timeframe selection
+        period_map = {
+            "3 Months": "3mo",
+            "6 Months": "6mo",
+            "1 Year": "1y"
+        }
+        selected_period = period_map.get(timeframe, "3mo")
+    
+        # Fetch historical price data
+        try:
+            status_text.text("Fetching data...")
+            progress_bar.progress(30)
+    
+            data = stock.history(period=selected_period, interval="1d")
+    
+            progress_bar.progress(100)
+            status_text.text("Data loaded successfully.")
+    
+            # Show a sample of the data
+            st.subheader(f"{ticker.upper()} Price Data")
+            st.dataframe(data)
+    
+        except Exception as e:
+            st.error(f"Error fetching data: {e}")
+            progress_bar.progress(0)
         
-        if timeframe == "3 Months":
-            data = yf.download(ticker, period="3mo")
-        elif timeframe == "6 Months":
-            data = yf.download(ticker, period="6mo")
-        elif timeframe == "1 Year":
-            data = yf.download(ticker, period="1y")  # Check if the "Run" button is pressed
-
-        st.write(data)
-        st.write("hello")
-
-        data.columns = data.columns.droplevel(1)
-        st.write(data)
-        st.write("fuckk youu")
 
         
         if not technical_analysis and not news_and_events and not fundamental_analysis:
