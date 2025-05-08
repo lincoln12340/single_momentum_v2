@@ -5,6 +5,7 @@ from openai import OpenAI
 import time
 import requests
 import gspread
+from alpha_vantage.timeseries import TimeSeries
 from oauth2client.service_account import ServiceAccountCredentials
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
