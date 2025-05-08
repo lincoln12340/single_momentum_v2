@@ -96,7 +96,7 @@ def stock_page():
         session = curl_requests.Session(impersonate="chrome")
 
     # Create yfinance Ticker object with session
-        stock = yf.Ticker(ticker, session=session)
+        stock = yf.Ticker(str(ticker), session=session)
     
         # Determine period from timeframe selection
         period_map = {
