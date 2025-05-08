@@ -37,6 +37,38 @@ type_sa = st.secrets["TYPE"]
 
 client = OpenAI(api_key= api_key)
 
+def fetch_alpha_vantage_data(ticker, period):
+    """Fetch data from Alpha Vantage and filter by period"""
+    ts = TimeSeries(key=alpha_vantage_key, output_format='pandas')
+    
+    try:
+        # Get full daily data (we'll filter it later)
+        data, meta_data = ts.get_daily(symbol=ticker, outputsize='full')
+        data.index = pd.to_datetime(data.index)
+        
+        # Filter based on selected period
+        period_map = {
+            "3 Months": "3M",
+            "6 Months": "6M",
+            "1 Year": "1Y"
+        }
+        filtered_data = data.last(period_map.get(period, "1Y"))
+        
+        # Rename columns to match yfinance format
+        filtered_data = filtered_data.rename(columns={
+            '1. open': 'Open',
+            '2. high': 'High',
+            '3. low': 'Low',
+            '4. close': 'Close',
+            '5. volume': 'Volume'
+        })
+        
+        return filtered_data
+    
+    except Exception as e:
+        st.error(f"Alpha Vantage Error: {str(e)}")
+        return None
+
 
 
 def stock_page():
@@ -92,43 +124,70 @@ def stock_page():
     status_text = st.empty()
 
     if run_button and ticker:
+        
+        try:
+            status_text.text("Fetching data from Alpha Vantage...")
+            progress_bar.progress(30)
+            
+            # Fetch data using Alpha Vantage
+            data = fetch_alpha_vantage_data(ticker, timeframe)
+            
+            if data is not None:
+                progress_bar.progress(100)
+                status_text.text("Data loaded successfully.")
+                
+                # Show a sample of the data
+                st.subheader(f"{ticker.upper()} Price Data")
+                st.dataframe(data)
+                
+                # Rest of your analysis code can go here
+                # (technical indicators, AI analysis, etc.)
+                
+            else:
+                progress_bar.progress(0)
+            
+        except Exception as e:
+            st.error(f"Error in analysis pipeline: {e}")
+            progress_bar.progress(0)
+
+        
     # Create impersonated session using curl_cffi
-        session = curl_requests.Session(impersonate="chrome")
-        session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Referer": "https://www.google.com/",
-    })
+        #session = curl_requests.Session(impersonate="chrome")
+        #session.headers.update({
+        #"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        #"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        #"Accept-Language": "en-US,en;q=0.5",
+        #"Referer": "https://www.google.com/",
+    #})
 
     # Create yfinance Ticker object with session
-        stock = yf.Ticker(str(ticker))
+        #stock = yf.Ticker(str(ticker))
     
         # Determine period from timeframe selection
-        period_map = {
-            "3 Months": "3mo",
-            "6 Months": "6mo",
-            "1 Year": "1y"
-        }
+        #period_map = {
+            #"3 Months": "3mo",
+            #"6 Months": "6mo",
+            #"1 Year": "1y"
+       # }
         selected_period = period_map.get(timeframe, "3mo")
     
         # Fetch historical price data
-        try:
-            status_text.text("Fetching data...")
-            progress_bar.progress(30)
+        #try:
+            #status_text.text("Fetching data...")
+            #progress_bar.progress(30)
     
-            data = stock.history(period=selected_period, interval="1d",session = session)
+            #data = stock.history(period=selected_period, interval="1d",session = session)
     
-            progress_bar.progress(100)
-            status_text.text("Data loaded successfully.")
+            #progress_bar.progress(100)
+           # status_text.text("Data loaded successfully.")
     
             # Show a sample of the data
-            st.subheader(f"{ticker.upper()} Price Data")
-            st.dataframe(data)
+            #st.subheader(f"{ticker.upper()} Price Data")
+            #st.dataframe(data)
     
-        except Exception as e:
-            st.error(f"Error fetching data: {e}")
-            progress_bar.progress(0)
+        #except Exception as e:
+            #st.error(f"Error fetching data: {e}")
+            #progress_bar.progress(0)
         
 
         
