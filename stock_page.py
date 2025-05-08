@@ -15,7 +15,7 @@ import os
 import re
 import anthropic
 from dotenv import load_dotenv
-from curl_cffi import requests
+from curl_cffi import requests as curl_requests
 
 load_dotenv()
 
