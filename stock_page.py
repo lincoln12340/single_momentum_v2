@@ -181,7 +181,7 @@ def stock_page():
             #"6 Months": "6mo",
             #"1 Year": "1y"
        # }
-        selected_period = period_map.get(timeframe, "3mo")
+        #selected_period = period_map.get(timeframe, "3mo")
     
         # Fetch historical price data
         #try:
