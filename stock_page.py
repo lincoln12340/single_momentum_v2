@@ -40,6 +40,7 @@ alpha_vantage_key = st.secrets["ALPHA_VANTAGE_API_KEY"]
 
 client = OpenAI(api_key= api_key)
 
+@st.cache_data(ttl=3600)
 def fetch_alpha_vantage_data(ticker, period):
     """Fetch data from Alpha Vantage and filter by period"""
     ts = TimeSeries(key=alpha_vantage_key, output_format='pandas')
