@@ -33,6 +33,7 @@ auth_provider_x509_cert_url = st.secrets["AUTH_PROVIDER_X509_CERT_URL"]
 client_x509_cert_url = st.secrets["CLIENT_X509_CERT_URL"]
 universe_domain = st.secrets["UNIVERSE_DOMAIN"]
 type_sa = st.secrets["TYPE"]
+alpha_vantage_key = st.secrets["ALPHA_VANTAGE_API_KEY"]
 
 
 
