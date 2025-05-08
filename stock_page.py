@@ -54,7 +54,7 @@ def stock_page():
         st.markdown("Analyze stock trends using advanced technical indicators powered by AI.")
         
         # Ticker Input
-        ticker = st.text_input(" Enter Ticker Symbol", "", help="Example: 'AAPL' for Apple Inc.")
+        ticker = st.text_input(" Enter Ticker Symbol", "", help="Example: 'AAPL' for Apple Inc.").strip().upper()
         company = st.text_input(" Enter Full Company Name", "", help="Example: 'Apple Inc.'")
         
         # Timeframe Selection
