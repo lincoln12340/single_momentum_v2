@@ -17,6 +17,7 @@ import re
 import anthropic
 from dotenv import load_dotenv
 from curl_cffi import requests as curl_requests
+import pandas as pd
 
 load_dotenv()
 
