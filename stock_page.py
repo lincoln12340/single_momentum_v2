@@ -17,6 +17,7 @@ import re
 import anthropic
 from dotenv import load_dotenv
 from curl_cffi import requests as curl_requests
+from datetime import datetime, timedelta
 import pandas as pd
 
 load_dotenv()
@@ -57,7 +58,7 @@ def fetch_alpha_vantage_data(ticker, period):
             "6 Months": 180,
             "1 Year": 365
         }
-        cutoff_days = period_days_map.get(period, 365)
+        cutoff_days = period_map.get(period, 365)
         cutoff_date = today - pd.Timedelta(days=cutoff_days)
 
         filtered_data = data[data.index >= cutoff_date]
