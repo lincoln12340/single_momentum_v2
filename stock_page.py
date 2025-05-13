@@ -150,7 +150,7 @@ def stock_page():
                 
                 # Show a sample of the data
                 st.subheader(f"{ticker.upper()} Price Data")
-                st.dataframe(data)
+                #st.dataframe(data)
                 
                 # Rest of your analysis code can go here
                 # (technical indicators, AI analysis, etc.)
