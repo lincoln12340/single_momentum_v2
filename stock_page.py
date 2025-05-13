@@ -552,7 +552,7 @@ def stock_page():
                     }
                 }
 
-                fa_ta_na_summary = generate_investment_analysis(gathered_data)
+                html_output= generate_investment_analysis(gathered_data)
                 st.components.v1.html(html_output, height=700, scrolling=True)
                 
                 st.session_state["gathered_data"] = gathered_data
