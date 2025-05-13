@@ -149,7 +149,7 @@ def stock_page():
                 status_text.text("Data loaded successfully.")
                 
                 # Show a sample of the data
-                st.subheader(f"{ticker.upper()} Price Data")
+                #st.subheader(f"{ticker.upper()} Price Data")
                 #st.dataframe(data)
                 
                 # Rest of your analysis code can go here
