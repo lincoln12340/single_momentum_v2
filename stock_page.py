@@ -3265,8 +3265,24 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
 
     response = client.responses.create(
     model="gpt-4.1",
-    instructions=""" You are an AI assistant specializing in financial analysis and long-term investment insights, particularly skilled in reading, interpreting, and analyzing 10-K filings of public companies. Your primary objective is to conduct thorough and robost fundamental analysis based on the financial data aka 10-K pdf filling, management discussion, and other disclosures within these filings. By doing so, you identify strengths, weaknesses, risks, and opportunities of the company’s financial health, operational performance, and strategic positioning. Your approach includes the following steps: Reviewing Key Financial Statements: Analyze the income statement, balance sheet, and cash flow statement. Assess revenue growth, profitability margins, debt levels, cash flow trends, and capital expenditures over recent years to gauge the company’s financial stability and growth potential. Assessing Management’s Discussion and Analysis (MD&A): Evaluate the management’s narrative on financial performance, operational challenges, and future outlook. Identify any significant shifts in strategy, cost-cutting measures, or growth initiatives that might impact long-term viability. Analyzing Risk Factors: Carefully review the section on risk factors to understand industry-specific, regulatory, operational, and market risks that may affect the company’s future performance. Assess which risks are ongoing versus those that may be temporary or mitigated through strategic actions. Evaluating Competitive Position and Industry Trends: Examine the company’s competitive positioning, market share, and any significant developments in its industry. Look for insights on emerging trends, technological changes, or economic factors that may influence long-term prospects. Reviewing Financial Ratios and Key Metrics: Calculate and interpret relevant financial ratios—such as the price-to-earnings (P/E) ratio, debt-to-equity ratio, return on equity (ROE), and free cash flow yield. These metrics help gauge valuation, efficiency, leverage, and profitability relative to industry peers. Providing Actionable Investment Recommendations: Based on your findings, formulate long-term investment recommendations. Consider if the company appears undervalued or overvalued, and outline potential entry or exit points for investment. Your recommendations should emphasize a balanced view of potential returns and risks for long-term investors, aligning with value, growth, or income-based investment objectives. Your goal is to offer a comprehensive, data-driven perspective that enables users to make informed decisions about including the company in a long-term investment portfolio. Ensure all recommendations are clearly explained, with relevant data and metrics highlighted to support your conclusions.""",
-    input= f"Conduct Fundamental Analysis on the only documenet which is of {company_name}'s finacial information, retrieve all the financial information including ratios, calculations, want a completly robust broken down analysis. To the level of a very senior investment analyst",
+    instructions=""" 
+    You are an AI assistant specializing in financial analysis and long-term investment insights. Your task is to thoroughly analyze a 10-K filing or similar financial document for a public company, using only the content provided from the vector store. 
+
+    **Instructions:**
+    - Do not ask any follow-up questions or request clarifications. Do not prompt the user for any additional input or context. Use only the information in the document provided.
+    - Analyze the financial information as follows:
+        1. Review and break down the key financial statements (income statement, balance sheet, cash flow). Assess revenue growth, profitability margins, debt, cash flow trends, and capital expenditures over recent years for financial stability and growth potential.
+        2. Evaluate Management’s Discussion and Analysis (MD&A) for narrative on financial performance, operational challenges, and future outlook. Identify major shifts, cost measures, or growth initiatives.
+        3. Analyze the risk factors section for industry, regulatory, operational, or market risks, distinguishing between ongoing and potentially mitigated risks.
+        4. Evaluate the company’s competitive position, market share, and relevant industry trends (including technological/economic changes) that may affect long-term prospects.
+        5. Calculate and interpret financial ratios (P/E, debt-to-equity, ROE, free cash flow yield, etc.) and compare to industry peers where possible.
+        6. Provide actionable investment recommendations based solely on the findings, including whether the company is under/overvalued, and any suggested entry/exit points. Emphasize potential returns and risks for long-term investors.
+
+    **Output:**  
+    Your analysis should be comprehensive, detailed, and data-driven, to the standard of a senior investment analyst. Clearly explain all recommendations and highlight supporting data/metrics. Do not output anything outside this analysis or request further information.
+
+    """,
+    input=f"Conduct Fundamental Analysis on the only document, which is {company_name}'s financial information. Retrieve all relevant financial data, including ratios and calculations, and provide a robust, broken-down analysis to the level of a very senior investment analyst. Do not ask any questions—just analyze and report.",
     tools=[{
         "type": "file_search",
         "vector_store_ids": [vector_store_id]
@@ -3278,107 +3294,107 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
     fetched = client.responses.retrieve(response_id)
     text = fetched.output_text
 
-    chat_completion = client.chat.completions.create(
-        model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                "You are an AI model trained to format text for fundamental analysis of financial assets, delivering actionable recommendations. "
-                "You must output only valid, structured HTML, using semantic tags such as <section>, <h2>, <h3>, <ul>, <ol>, <li>, <p>, and <strong> for clarity and readability. "
-                "Do not use Markdown or plain text—output only HTML.\n"
-                "\n"
-                "Format your analysis with these sections and formatting standards:\n"
-                "\n"
-                "<section id='introduction'>\n"
-                "  <h2>Introduction</h2>\n"
-                "  <p>Provide a concise overview of the asset, including its industry context and the main purpose of the analysis.</p>\n"
-                "</section>\n"
-                "\n"
-                "<section id='financial-analysis'>\n"
-                "  <h2>Financial Analysis</h2>\n"
-                "  <h3>Income Statement</h3>\n"
-                "  <ul>\n"
-                "    <li>Summarize trends in <strong>Revenue</strong>, <strong>Cost of Goods Sold</strong>, <strong>Operating Income</strong>, and <strong>Net Income</strong>. Highlight significant changes or growth patterns.</li>\n"
-                "  </ul>\n"
-                "  <h3>Balance Sheet</h3>\n"
-                "  <ul>\n"
-                "    <li>Summarize <strong>Assets</strong>, <strong>Liabilities</strong>, and <strong>Equity</strong>, focusing on liquidity and leverage metrics.</li>\n"
-                "  </ul>\n"
-                "  <h3>Cash Flow Statement</h3>\n"
-                "  <ul>\n"
-                "    <li>Highlight <strong>Cash Flow from Operating</strong>, <strong>Investing</strong>, and <strong>Financing Activities</strong>, emphasizing cash generation and any unusual patterns.</li>\n"
-                "  </ul>\n"
-                "  <h3>Key Ratios and Metrics</h3>\n"
-                "  <ul>\n"
-                "    <li><strong>Profitability Ratios</strong> (e.g., <strong>Gross Margin</strong>, <strong>Return on Assets</strong>)</li>\n"
-                "    <li><strong>Liquidity Ratios</strong> (e.g., <strong>Current Ratio</strong>, <strong>Quick Ratio</strong>)</li>\n"
-                "    <li><strong>Leverage Ratios</strong> (e.g., <strong>Debt-to-Equity Ratio</strong>)</li>\n"
-                "    <li><strong>Valuation Ratios</strong> (e.g., <strong>Price-to-Earnings Ratio (P/E)</strong>, <strong>Price-to-Book Ratio (P/B)</strong>)</li>\n"
-                "  </ul>\n"
-                "</section>\n"
-                "\n"
-                "<section id='competitive-market-analysis'>\n"
-                "  <h2>Competitive Positioning and Market Analysis</h2>\n"
-                "  <ul>\n"
-                "    <li>Overview of the asset’s competitive position, market share, and primary competitors.</li>\n"
-                "    <li>Summary of industry trends and a concise <strong>SWOT analysis</strong> (strengths, weaknesses, opportunities, threats).</li>\n"
-                "  </ul>\n"
-                "</section>\n"
-                "\n"
-                "<section id='management-governance'>\n"
-                "  <h2>Management and Governance</h2>\n"
-                "  <ul>\n"
-                "    <li>Describe the executive team and board structure, noting experience, past performance, and recent changes.</li>\n"
-                "    <li>Mention recent strategic decisions (e.g., acquisitions, new product lines) that have impacted performance.</li>\n"
-                "  </ul>\n"
-                "</section>\n"
-                "\n"
-                "<section id='conclusion-outlook'>\n"
-                "  <h2>Conclusion and Outlook</h2>\n"
-                "  <ul>\n"
-                "    <li>Concise summary of strengths and potential risks based on financial and strategic positioning.</li>\n"
-                "    <li>Outlook considering financial stability, industry conditions, and management’s strategic direction.</li>\n"
-                "  </ul>\n"
-                "</section>\n"
-                "\n"
-                "<section id='actionable-recommendations'>\n"
-                "  <h2>Actionable Recommendations</h2>\n"
-                "  <ol>\n"
-                "    <li><strong>Investment Recommendation:</strong> Clearly state Buy, Hold, or Sell, and justify with reference to valuation, market, or management actions.</li>\n"
-                "    <li><strong>Risk Management Suggestions:</strong> Outline risk mitigation strategies (e.g., diversification, stop-loss orders).</li>\n"
-                "    <li><strong>Strategic Suggestions for Management:</strong> If relevant, suggest actions for the company (e.g., explore new markets, reduce debt, optimize costs).</li>\n"
-                "    <li><strong>Performance Monitoring Tips:</strong> Recommend specific metrics or events (e.g., quarterly earnings, regulatory updates) for ongoing evaluation.</li>\n"
-                "  </ol>\n"
-                "</section>\n"
+    # chat_completion = client.chat.completions.create(
+    #     model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
+    #     messages=[
+    #         {
+    #             "role": "system",
+    #             "content": (
+    #             "You are an AI model trained to format text for fundamental analysis of financial assets, delivering actionable recommendations. "
+    #             "You must output only valid, structured HTML, using semantic tags such as <section>, <h2>, <h3>, <ul>, <ol>, <li>, <p>, and <strong> for clarity and readability. "
+    #             "Do not use Markdown or plain text—output only HTML.\n"
+    #             "\n"
+    #             "Format your analysis with these sections and formatting standards:\n"
+    #             "\n"
+    #             "<section id='introduction'>\n"
+    #             "  <h2>Introduction</h2>\n"
+    #             "  <p>Provide a concise overview of the asset, including its industry context and the main purpose of the analysis.</p>\n"
+    #             "</section>\n"
+    #             "\n"
+    #             "<section id='financial-analysis'>\n"
+    #             "  <h2>Financial Analysis</h2>\n"
+    #             "  <h3>Income Statement</h3>\n"
+    #             "  <ul>\n"
+    #             "    <li>Summarize trends in <strong>Revenue</strong>, <strong>Cost of Goods Sold</strong>, <strong>Operating Income</strong>, and <strong>Net Income</strong>. Highlight significant changes or growth patterns.</li>\n"
+    #             "  </ul>\n"
+    #             "  <h3>Balance Sheet</h3>\n"
+    #             "  <ul>\n"
+    #             "    <li>Summarize <strong>Assets</strong>, <strong>Liabilities</strong>, and <strong>Equity</strong>, focusing on liquidity and leverage metrics.</li>\n"
+    #             "  </ul>\n"
+    #             "  <h3>Cash Flow Statement</h3>\n"
+    #             "  <ul>\n"
+    #             "    <li>Highlight <strong>Cash Flow from Operating</strong>, <strong>Investing</strong>, and <strong>Financing Activities</strong>, emphasizing cash generation and any unusual patterns.</li>\n"
+    #             "  </ul>\n"
+    #             "  <h3>Key Ratios and Metrics</h3>\n"
+    #             "  <ul>\n"
+    #             "    <li><strong>Profitability Ratios</strong> (e.g., <strong>Gross Margin</strong>, <strong>Return on Assets</strong>)</li>\n"
+    #             "    <li><strong>Liquidity Ratios</strong> (e.g., <strong>Current Ratio</strong>, <strong>Quick Ratio</strong>)</li>\n"
+    #             "    <li><strong>Leverage Ratios</strong> (e.g., <strong>Debt-to-Equity Ratio</strong>)</li>\n"
+    #             "    <li><strong>Valuation Ratios</strong> (e.g., <strong>Price-to-Earnings Ratio (P/E)</strong>, <strong>Price-to-Book Ratio (P/B)</strong>)</li>\n"
+    #             "  </ul>\n"
+    #             "</section>\n"
+    #             "\n"
+    #             "<section id='competitive-market-analysis'>\n"
+    #             "  <h2>Competitive Positioning and Market Analysis</h2>\n"
+    #             "  <ul>\n"
+    #             "    <li>Overview of the asset’s competitive position, market share, and primary competitors.</li>\n"
+    #             "    <li>Summary of industry trends and a concise <strong>SWOT analysis</strong> (strengths, weaknesses, opportunities, threats).</li>\n"
+    #             "  </ul>\n"
+    #             "</section>\n"
+    #             "\n"
+    #             "<section id='management-governance'>\n"
+    #             "  <h2>Management and Governance</h2>\n"
+    #             "  <ul>\n"
+    #             "    <li>Describe the executive team and board structure, noting experience, past performance, and recent changes.</li>\n"
+    #             "    <li>Mention recent strategic decisions (e.g., acquisitions, new product lines) that have impacted performance.</li>\n"
+    #             "  </ul>\n"
+    #             "</section>\n"
+    #             "\n"
+    #             "<section id='conclusion-outlook'>\n"
+    #             "  <h2>Conclusion and Outlook</h2>\n"
+    #             "  <ul>\n"
+    #             "    <li>Concise summary of strengths and potential risks based on financial and strategic positioning.</li>\n"
+    #             "    <li>Outlook considering financial stability, industry conditions, and management’s strategic direction.</li>\n"
+    #             "  </ul>\n"
+    #             "</section>\n"
+    #             "\n"
+    #             "<section id='actionable-recommendations'>\n"
+    #             "  <h2>Actionable Recommendations</h2>\n"
+    #             "  <ol>\n"
+    #             "    <li><strong>Investment Recommendation:</strong> Clearly state Buy, Hold, or Sell, and justify with reference to valuation, market, or management actions.</li>\n"
+    #             "    <li><strong>Risk Management Suggestions:</strong> Outline risk mitigation strategies (e.g., diversification, stop-loss orders).</li>\n"
+    #             "    <li><strong>Strategic Suggestions for Management:</strong> If relevant, suggest actions for the company (e.g., explore new markets, reduce debt, optimize costs).</li>\n"
+    #             "    <li><strong>Performance Monitoring Tips:</strong> Recommend specific metrics or events (e.g., quarterly earnings, regulatory updates) for ongoing evaluation.</li>\n"
+    #             "  </ol>\n"
+    #             "</section>\n"
 
 
-                "Style Requirements"
-                "Maintain a professional, objective tone focused on analysis without personal opinions."
-                "Avoid excessive jargon; use clear, direct explanations where needed."
-                "Keep sentences and paragraphs clear and direct for logical flow and easy understanding."
-                "Include all sections and headings as listed, even if a section is brief. Output only valid HTML."
+    #             "Style Requirements"
+    #             "Maintain a professional, objective tone focused on analysis without personal opinions."
+    #             "Avoid excessive jargon; use clear, direct explanations where needed."
+    #             "Keep sentences and paragraphs clear and direct for logical flow and easy understanding."
+    #             "Include all sections and headings as listed, even if a section is brief. Output only valid HTML."
                     
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"fromat this text {text}"   
-                ),
-            },
-        ]
-    )
+    #             ),
+    #         },
+    #         {
+    #             "role": "user",
+    #             "content": (
+    #                 f"fromat this text {text}"   
+    #             ),
+    #         },
+    #     ]
+    # )
 
-    # Extract and return the AI-generated response
-    response = chat_completion.choices[0].message.content
+    # # Extract and return the AI-generated response
+    # response = chat_completion.choices[0].message.content
 
     deleted_vector_store_file = client.vector_stores.delete(
-        vector_store_id=vector_store_id
-    )
+         vector_store_id=vector_store_id
+     )
     
     print("File successfully deleted from vector store.")
-    return response 
+    return text 
     
    
 def SUMMARY(company_name, BD, SMA, RSI, MACD, OBV, ADX, weighted_score, weight_choice):
