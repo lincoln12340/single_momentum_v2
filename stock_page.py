@@ -816,7 +816,7 @@ def stock_page():
                 file_content = uploaded_file
                 file_name = uploaded_file.name
                 update_progress(progress_bar, 50, 50, "Analysing Financial Information...")  
-                fa_summary = FUNDAMENTAL_ANALYSIS(file_content, company, file_name)
+                fa_summary = FUNDAMENTAL_ANALYSIS2(file_content, company, file_name)
                 update_progress(progress_bar, 100, 100, "Analysing Financial Information...")  
         
             #text_fs = convert_to_raw_text(fa_summary)
@@ -2960,8 +2960,9 @@ def FUNDAMENTAL_ANALYSIS2(file_name, company_name, file):
 
     file_name_ai = message_file.filename
 
-    vector_store = client.vector_stores.create(
-        name=f"{company_name}_store",
+    vector_store = client.vector_stores.create(name=f"{company_name} Store")
+    client.vector_stores.files.create(
+        vector_store_id=vector_store.id,
         file_id=file_id
     )
 
@@ -3096,8 +3097,9 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
 
     file_name_ai = message_file.filename
 
-    vector_store = client.vector_stores.create(
-        name=f"{company_name}_store",
+    vector_store = client.vector_stores.create(name=f"{company_name} Store")
+    client.vector_stores.files.create(
+        vector_store_id=vector_store.id,
         file_id=file_id
     )
 
