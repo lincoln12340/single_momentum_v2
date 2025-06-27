@@ -674,7 +674,7 @@ def stock_page():
 
                 st.download_button(
                     label="Download as HTML",
-                    data=text_ovr,
+                    data=html_output,
                     file_name="stock_analysis_summary.html",
                     mime="text/html"
                 )
