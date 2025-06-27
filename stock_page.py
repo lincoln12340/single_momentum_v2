@@ -2960,9 +2960,8 @@ def FUNDAMENTAL_ANALYSIS2(file_name, company_name, file):
 
     file_name_ai = message_file.filename
 
-    vector_store = client.vector_stores.create(name=f"{company_name} Store")
-    client.vector_stores.files.create(
-        vector_store_id=vector_store.id,
+    vector_store = client.vector_stores.create(
+        name=f"{company_name}_store",
         file_id=file_id
     )
 
@@ -3097,9 +3096,8 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
 
     file_name_ai = message_file.filename
 
-    vector_store = client.vector_stores.create(name=f"{company_name} Store")
-    client.vector_stores.files.create(
-        vector_store_id=vector_store.id,
+    vector_store = client.vector_stores.create(
+        name=f"{company_name}_store",
         file_id=file_id
     )
 
