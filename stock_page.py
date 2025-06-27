@@ -2680,59 +2680,51 @@ def generate_company_news_message(company_name, time_period):
         "time_frame": time_period
     }
 
-    print("\n📤 Sending to Make.com webhook...")
-    webhook_url = "https://hook.eu2.make.com/s4xsnimg9v87rrrckcwo88d9k57186q6"
-    try:
-        response = requests.post(webhook_url, json=payload)
-        if response.status_code == 200:
-            print("✅ Successfully posted to the webhook.")
-        else:
-            print(f"❌ Webhook error: {response.status_code} - {response.text}")
-    except Exception as e:
-        print(f"❌ Error posting to webhook: {e}")
+    chat_completion = client.chat.completions.create(
+        model="gpt-4.1",
+        messages=[
+            {
+                "role": "system",
+                "content": f"""You will receive a set of news items, each including the following:
 
+                Company name
 
- 
-    print(response.text)
+                Date of publication
 
-    time.sleep(65)
+                News title
 
-    credentials_dict = {
-        "type": type_sa,
-        "project_id": project_id,
-        "private_key_id": private_key_id,
-        "private_key": private_key,
-        "client_email": client_email,
-        "client_id": client_id,
-        "auth_uri": auth_uri,
-        "token_uri": token_uri,
-        "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
-        "client_x509_cert_url": client_x509_cert_url,
-        "universe_domain": universe_domain
-    }
-    credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, ["https://www.googleapis.com/auth/spreadsheets"])
+                Full news content
 
-    gc = gspread.authorize(credentials)
-    sh = gc.open_by_url(google_sheet_url)
-    previous = sh.sheet1.get('A2')
-    future = sh.sheet1.get('B2')
-          
-    # chats = client.chat.completions.create(
-    #     model="gpt-4o",
-    #     messages=[
-    #         {
-    #             "role": "system",
-    #             "content": "You are an artificial intelligence assistant, and your role is to "
-    #                 f"present the latest news and updates along with the future news and update for {company_name} in a detailed, organized, and engaging manner."
-    #         },
-    #         {
-    #             "role": "user",
-    #             "content": f"Present the news and events aswell {company_name} over the past {time_period} retatining all the Dates aswell as the future news and events: Latest News and Updates text {previous}, Future News and Updates text {future}?"
-    #         },
-    #     ]
-    # )
-    # response = chats.choices[0].message.content
-    return previous
+                URL link to the original source
+
+                Your task is to analyze all news articles published over the past{time_period} . From these, extract and summarize the most relevant events that could potentially affect {company_name}'s stock price, either positively or negatively. Pay particular attention to financial updates, regulatory developments, strategic decisions, product milestones, partnerships, or public sentiment shifts or tweets.
+
+                Present your output in the following format:
+
+                [Company Name] Announcements – Key Events Timeline
+
+                [Date]: [Event Title]
+                [Provide a brief description of the event, emphasizing its relevance, such as its impact on stock performance, investor confidence, financial results, or industry positioning.]
+                [Include the URL to the original source.]
+
+                [Date]: [Event Title]
+                [Summarize another key event, noting details such as earnings announcements, trial outcomes, leadership changes, or market expansions.]
+                [Include the URL to the original source.]
+
+                [Date]: [Event Title]
+                [Describe the event’s importance, including aspects like M&A activity, regulatory updates, or attendance at industry conferences.]
+                [Include the URL to the original source.]
+
+                """
+            },
+            {
+                "role": "user",
+                "content": f"News: {payload} Company: {company_name} Time Frame: {time_period}"
+            },
+        ]
+    )
+    response = chat_completion.choices[0].message.content
+    return response
 
 def extract_diffbot_data(link):
     url = f"https://api.diffbot.com/v3/analyze?url={link}&token=fdbc63a153d0d8da7c0dfb7ccef69945"
@@ -2951,9 +2943,9 @@ def ADX(company_name,data_text):
     response = chat_completion.choices[0].message.content
     return response
 
-def FUNDAMENTAL_ANALYSIS2(file_name, company_name, file):
-    system_prompt = """ """
 
+def FUNDAMENTAL_ANALYSIS2(file_name, company_name, file):
+    
     temp_file_path = os.path.join(tempfile.gettempdir(), file)
 
 # Write the contents to the temporary file
@@ -2966,34 +2958,25 @@ def FUNDAMENTAL_ANALYSIS2(file_name, company_name, file):
 
     file_id = message_file.id
 
+    file_name_ai = message_file.filename
 
-    data = {"File_id": file_id, "Company Name": company_name, "File_name": file}
+    vector_store = client.vector_stores.create(name=f"{company_name} Store")
+    client.vector_stores.files.create(
+        vector_store_id=vector_store.id,
+        file_id=file_id
+    )
 
-    webhook_url = "https://hook.eu2.make.com/d68cwl3ujkpqmgrnbpgy9mx3d06vs198"
-    if webhook_url:
-        response = requests.post(webhook_url,data)
-    else: 
-        print("Error")
+    vector_store_id = vector_store.id
 
-    time.sleep(65)
-
-    credentials_dict = {
-        "type": type_sa,
-        "project_id": project_id,
-        "private_key_id": private_key_id,
-        "private_key": private_key,
-        "client_email": client_email,
-        "client_id": client_id,
-        "auth_uri": auth_uri,
-        "token_uri": token_uri,
-        "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
-        "client_x509_cert_url": client_x509_cert_url,
-        "universe_domain": universe_domain
-    }
-    credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, ["https://www.googleapis.com/auth/spreadsheets"])
-    gc = gspread.authorize(credentials)
-    sh = gc.open_by_url(google_sheet_url)
-    anaylsis = sh.sheet1.get('C2')
+    response = client.responses.create(
+    model="gpt-4.1",
+    instructions=""" You are an AI assistant specializing in financial analysis and long-term investment insights, particularly skilled in reading, interpreting, and analyzing 10-K filings of public companies. Your primary objective is to conduct thorough fundamental analysis based on the financial data, management discussion, and other disclosures within these filings. By doing so, you identify strengths, weaknesses, risks, and opportunities of the company’s financial health, operational performance, and strategic positioning. Your approach includes the following steps: Reviewing Key Financial Statements: Analyze the income statement, balance sheet, and cash flow statement. Assess revenue growth, profitability margins, debt levels, cash flow trends, and capital expenditures over recent years to gauge the company’s financial stability and growth potential. Assessing Management’s Discussion and Analysis (MD&A): Evaluate the management’s narrative on financial performance, operational challenges, and future outlook. Identify any significant shifts in strategy, cost-cutting measures, or growth initiatives that might impact long-term viability. Analyzing Risk Factors: Carefully review the section on risk factors to understand industry-specific, regulatory, operational, and market risks that may affect the company’s future performance. Assess which risks are ongoing versus those that may be temporary or mitigated through strategic actions. Evaluating Competitive Position and Industry Trends: Examine the company’s competitive positioning, market share, and any significant developments in its industry. Look for insights on emerging trends, technological changes, or economic factors that may influence long-term prospects. Reviewing Financial Ratios and Key Metrics: Calculate and interpret relevant financial ratios—such as the price-to-earnings (P/E) ratio, debt-to-equity ratio, return on equity (ROE), and free cash flow yield. These metrics help gauge valuation, efficiency, leverage, and profitability relative to industry peers. Providing Actionable Investment Recommendations: Based on your findings, formulate long-term investment recommendations. Consider if the company appears undervalued or overvalued, and outline potential entry or exit points for investment. Your recommendations should emphasize a balanced view of potential returns and risks for long-term investors, aligning with value, growth, or income-based investment objectives. Your goal is to offer a comprehensive, data-driven perspective that enables users to make informed decisions about including the company in a long-term investment portfolio. Ensure all recommendations are clearly explained, with relevant data and metrics highlighted to support your conclusions.""",
+    input= f"Conduct Fundamental Analysis of {company_name}'s finacial statements, using the document in the vector store: {file_name_ai} to retrieve all the information",
+    tools=[{
+        "type": "file_search",
+        "vector_store_ids": [vector_store_id]
+        }]
+    )
 
     chat_completion = client.chat.completions.create(
         model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
@@ -3081,7 +3064,7 @@ def FUNDAMENTAL_ANALYSIS2(file_name, company_name, file):
             {
                 "role": "user",
                 "content": (
-                    f"fromat this text {anaylsis}"   
+                    f"fromat this text {response}"   
                 ),
             },
         ]
@@ -3090,9 +3073,8 @@ def FUNDAMENTAL_ANALYSIS2(file_name, company_name, file):
     # Extract and return the AI-generated response
     response = chat_completion.choices[0].message.content
 
-    deleted_vector_store_file = client.vector_stores.files.delete(
-        vector_store_id="vs_67e6701fdd908191bccc587ac16d2e11",
-        file_id=file_id
+    deleted_vector_store_file = client.vector_stores.delete(
+        vector_store_id=vector_store_id
     )
     
     print("File successfully deleted from vector store.")
@@ -3113,34 +3095,26 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
 
     file_id = message_file.id
 
+    file_name_ai = message_file.filename
 
-    data = {"File_id": file_id, "Company Name": company_name, "File_name": file}
+    vector_store = client.vector_stores.create(name=f"{company_name} Store")
+    client.vector_stores.files.create(
+        vector_store_id=vector_store.id,
+        file_id=file_id
+    )
 
-    webhook_url = "https://hook.eu2.make.com/d68cwl3ujkpqmgrnbpgy9mx3d06vs198"
-    if webhook_url:
-        response = requests.post(webhook_url,data)
-    else: 
-        print("Error")
+    vector_store_id = vector_store.id
 
-    time.sleep(65)
-
-    credentials_dict = {
-        "type": type_sa,
-        "project_id": project_id,
-        "private_key_id": private_key_id,
-        "private_key": private_key,
-        "client_email": client_email,
-        "client_id": client_id,
-        "auth_uri": auth_uri,
-        "token_uri": token_uri,
-        "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
-        "client_x509_cert_url": client_x509_cert_url,
-        "universe_domain": universe_domain
-    }
-    credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, ["https://www.googleapis.com/auth/spreadsheets"])
-    gc = gspread.authorize(credentials)
-    sh = gc.open_by_url(google_sheet_url)
-    anaylsis = sh.sheet1.get('C2')
+    response = client.responses.create(
+    model="gpt-4.1",
+    instructions=""" You are an AI assistant specializing in financial analysis and long-term investment insights, particularly skilled in reading, interpreting, and analyzing 10-K filings of public companies. Your primary objective is to conduct thorough fundamental analysis based on the financial data, management discussion, and other disclosures within these filings. By doing so, you identify strengths, weaknesses, risks, and opportunities of the company’s financial health, operational performance, and strategic positioning. Your approach includes the following steps: Reviewing Key Financial Statements: Analyze the income statement, balance sheet, and cash flow statement. Assess revenue growth, profitability margins, debt levels, cash flow trends, and capital expenditures over recent years to gauge the company’s financial stability and growth potential. Assessing Management’s Discussion and Analysis (MD&A): Evaluate the management’s narrative on financial performance, operational challenges, and future outlook. Identify any significant shifts in strategy, cost-cutting measures, or growth initiatives that might impact long-term viability. Analyzing Risk Factors: Carefully review the section on risk factors to understand industry-specific, regulatory, operational, and market risks that may affect the company’s future performance. Assess which risks are ongoing versus those that may be temporary or mitigated through strategic actions. Evaluating Competitive Position and Industry Trends: Examine the company’s competitive positioning, market share, and any significant developments in its industry. Look for insights on emerging trends, technological changes, or economic factors that may influence long-term prospects. Reviewing Financial Ratios and Key Metrics: Calculate and interpret relevant financial ratios—such as the price-to-earnings (P/E) ratio, debt-to-equity ratio, return on equity (ROE), and free cash flow yield. These metrics help gauge valuation, efficiency, leverage, and profitability relative to industry peers. Providing Actionable Investment Recommendations: Based on your findings, formulate long-term investment recommendations. Consider if the company appears undervalued or overvalued, and outline potential entry or exit points for investment. Your recommendations should emphasize a balanced view of potential returns and risks for long-term investors, aligning with value, growth, or income-based investment objectives. Your goal is to offer a comprehensive, data-driven perspective that enables users to make informed decisions about including the company in a long-term investment portfolio. Ensure all recommendations are clearly explained, with relevant data and metrics highlighted to support your conclusions.""",
+    input= f"Conduct Fundamental Analysis of {company_name}'s finacial statements, using the document in the vector store: {file_name_ai} to retrieve all the information",
+    tools=[{
+        "type": "file_search",
+        "vector_store_ids": [vector_store_id]
+        }]
+    )
+    
 
     chat_completion = client.chat.completions.create(
         model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
@@ -3228,7 +3202,7 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
             {
                 "role": "user",
                 "content": (
-                    f"fromat this text {anaylsis}"   
+                    f"fromat this text {response}"   
                 ),
             },
         ]
@@ -3237,10 +3211,9 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
     # Extract and return the AI-generated response
     response = chat_completion.choices[0].message.content
 
-    #deleted_vector_store_file = client.vector_stores.files.delete(
-       #vector_store_id="vs_67e6701fdd908191bccc587ac16d2e11",
-        #file_id=file_id
-    #)
+    deleted_vector_store_file = client.vector_stores.delete(
+        vector_store_id=vector_store_id
+    )
     
     print("File successfully deleted from vector store.")
     return response 
