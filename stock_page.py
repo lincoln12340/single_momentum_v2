@@ -1,5 +1,4 @@
 import streamlit as st
-import yfinance as yf
 import pandas_ta as ta
 from openai import OpenAI
 import time
@@ -15,12 +14,15 @@ from pydantic import BaseModel
 import os 
 import re
 import anthropic
-from dotenv import load_dotenv
-from curl_cffi import requests as curl_requests
-from datetime import datetime, timedelta
+#from dotenv import load_dotenv
+#from curl_cffi import requests as curl_requests
+from datetime import datetime, timedelta,date
 import pandas as pd
+from serpapi import GoogleSearch
+from dateutil.relativedelta import relativedelta
 
-load_dotenv()
+
+#load_dotenv()
 
 api_key = st.secrets["OPENAI_API_KEY"]
 google_sheet_url = st.secrets["GOOGLE_SHEET_URL"]
@@ -116,14 +118,56 @@ def stock_page():
         news_and_events = st.checkbox("News and Events", help="Get recent news and event analysis for the company")
         fundamental_analysis = st.checkbox("Fundamental Analysis", help="Select to upload a file for fundamental analysis")
 
+        selected_types = [
+            technical_analysis, 
+            fundamental_analysis, 
+            news_and_events
+        ]
+        selected_count = sum(selected_types)
+
+        if technical_analysis:
+            weight_choice = st.radio(
+            "Weighting Style",
+            ("Short Term", "Long Term","Default"),
+            index=1,
+            help="Choose analysis style for technical indicators"
+        )
+
         uploaded_file = None
         if fundamental_analysis:
             uploaded_file = st.file_uploader("Upload a PDF file for Fundamental Analysis", type="pdf")
+
+        if selected_count > 1:
+            st.subheader("Analysis Weightings")
+            default_weights = {
+                "Technical": 0.33,
+                "Fundamental": 0.33,
+                "News": 0.34
+            }
+            tech_weight = st.slider("Technical Analysis Weight", 0.0, 1.0, default_weights["Technical"])
+            fund_weight = st.slider("Fundamental Analysis Weight", 0.0, 1.0, default_weights["Fundamental"])
+            news_weight = st.slider("News Analysis Weight", 0.0, 1.0, default_weights["News"])
+            total = tech_weight + fund_weight + news_weight
+            # Normalize to sum to 1
+            if total > 0:
+                tech_weight /= total
+                fund_weight /= total
+                news_weight /= total
+            else:
+                tech_weight = fund_weight = news_weight = 1/3
+        else:
+            # If only one is selected, set weights accordingly
+            tech_weight = 1.0 if technical_analysis else 0.0
+            fund_weight = 1.0 if fundamental_analysis else 0.0
+            news_weight = 1.0 if news_and_events else 0.0
         
         # Run Button with styled alert text
         run_button = st.button("Run Analysis")
         st.markdown("---")
         st.info("Click 'Run Analysis' after selecting options to start.")
+
+       
+
 
 
     col1, col2 = st.columns([3, 1])
@@ -214,7 +258,7 @@ def stock_page():
             if technical_analysis and not news_and_events and not fundamental_analysis:
                 with st.expander("Downloading Data... Click to View Progress"):
                     update_progress(progress_bar, 50, 50, "Analyzing...")
-                    results, recent_data, availability = calculate_technical_indicators(data,ticker)
+                    results, recent_data, availability,score,weighted_score = calculate_technical_indicators(data,ticker,weight_choice=weight_choice)
                     update_progress(progress_bar, 100, 100, "Finalising...")
                     bd_result = results["bd_result"]
                     sma_result = results["sma_result"]
@@ -222,8 +266,8 @@ def stock_page():
                     macd_result = results["macd_result"]
                     obv_result = results["obv_result"]
                     adx_result = results["adx_result"]
-                    summary = SUMMARY(ticker, bd_result, sma_result, rsi_result, macd_result, obv_result, adx_result)
-                    update_progress(progress_bar, 100, 100, "Analysis Complete...")
+                    #summary = SUMMARY(ticker, bd_result, sma_result, rsi_result, macd_result, obv_result, adx_result,weighted_score,weight_choice)
+                    #update_progress(progress_bar, 100, 100, "Analysis Complete...")
                     
                 sma_available = availability['sma_available']
                 rsi_available = availability['rsi_available']
@@ -241,33 +285,39 @@ def stock_page():
 
 
             
-                st.subheader(f"Summary for {ticker}")
-                st.write(summary)
+                #st.subheader(f"Summary for {ticker}")
+                #st.write(summary)
+
 
                 st.session_state["run_analysis_complete"] = True
 
                 
 
-                recent_data.reset_index(inplace=True)
-                recent_data['Date'] = recent_data['date'].astype(str)
+                #recent_data.reset_index(inplace=True)
+                #recent_data['Date'] = recent_data['date'].astype(str)
 
                 gathered_data = {
                     "Ticker": ticker,
                     "Company": company,
                     "Timeframe": timeframe,
-                    "Technical Analysis": technical_analysis,
-                    "News and Events": news_and_events,
-                    "Fundamental Analysis": fundamental_analysis,
                     "data": recent_data.to_dict(orient="records"),
+                    "Position_type":weight_choice,
                     "Results": {
-                        "Summary": summary if 'summary' in locals() else "",
+                        #"Summary": summary if 'summary' in locals() else "",
                         "SMA Results": sma_result if 'sma_result' in locals() else "",
                         "RSI Results": rsi_result if 'rsi_result' in locals() else "",
                         "MACD Results": macd_result if 'macd_result' in locals() else "",
                         "OBV Results": obv_result if 'obv_result' in locals() else "",
+                        "BD Results": bd_result if 'obv_result' in locals() else "",
                         "ADX Results": adx_result if 'adx_result' in locals() else ""
                     }
                 }
+
+                summary = SUMMARY2(gathered_data)
+                text_ovr = clean_html_response(summary)
+                st.components.v1.html(text_ovr, height=700, scrolling=True)
+
+
                 st.session_state["gathered_data"] = gathered_data
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
                 st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
@@ -308,6 +358,13 @@ def stock_page():
                         fig_adx = plot_adx(data)
                         st.plotly_chart(fig_adx)
                         st.write(adx_result)  # Display ADX result or interpretation
+                
+                st.download_button(
+                    label="Download as HTML",
+                    data=text_ovr,
+                    file_name="stock_analysis_summary.html",
+                    mime="text/html"
+                )
 
                 if st.button("Run Another Stock"):
                     analysis_complete = False
@@ -318,17 +375,19 @@ def stock_page():
                     st.session_state["6_months"] = False
                     st.session_state["1_year"] = False
                     st.experimental_rerun() 
+
+
             if technical_analysis and news_and_events and not fundamental_analysis:
                 with st.expander("Downloading Data... Click to View Progress"):
                     update_progress(progress_bar, 15, 15, "Analyzing...")
-                    results, recent_data, availability = calculate_technical_indicators(data,ticker)
+                    results, recent_data, availability,score,weighted_score = calculate_technical_indicators(data,ticker,weight_choice=weight_choice)
                     bd_result = results["bd_result"]
                     sma_result = results["sma_result"]
                     rsi_result = results["rsi_result"]
                     macd_result = results["macd_result"]
                     obv_result = results["obv_result"]
                     adx_result = results["adx_result"]
-                    summary = SUMMARY(ticker, bd_result, sma_result, rsi_result, macd_result, obv_result, adx_result)
+                    summary = SUMMARY(ticker, bd_result, sma_result, rsi_result, macd_result, obv_result, adx_result,weighted_score,weight_choice)
                     update_progress(progress_bar, 35, 35, "Technical Analysis complete!")
                     update_progress(progress_bar, 45, 45, "Gathering News Data...")    
                     txt_summary = generate_company_news_message(company, timeframe)
@@ -336,8 +395,7 @@ def stock_page():
                     txt_summary = format_news(txt_summary)
                     txt_ovr = txt_conclusion(txt_summary,company)
                     update_progress(progress_bar, 85, 85, "Finalising...")
-                    ovr_summary = merge_news_and_technical_analysis_summary(company,txt_summary,summary,timeframe)
-                    update_progress(progress_bar, 100, 100, "Analysis Complete...")
+                    
                 
 
                 sma_available = availability['sma_available']
@@ -350,15 +408,15 @@ def stock_page():
 
 
             
-
-                st.subheader(f"News and Events Analysis and Technical Analysis for {ticker} over the past {timeframe}")
-                text = convert_to_raw_text(txt_summary)
-                st.write(text)
-                st.subheader("Technical Analysis Summary")
-                st.write(summary)
-                st.subheader("Overall Summary")
-                text_ovr_s = convert_to_raw_text(ovr_summary)
-                st.write(text_ovr_s)
+             
+                # st.subheader(f"News and Events Analysis and Technical Analysis for {ticker} over the past {timeframe}")
+                # text = convert_to_raw_text(txt_summary)
+                # st.write(text)
+                # st.subheader("Technical Analysis Summary")
+                # st.write(summary)
+                # st.subheader("Overall Summary")
+                # text_ovr_s = convert_to_raw_text(ovr_summary)
+                # st.write(text_ovr_s)
 
                 
                 
@@ -369,20 +427,33 @@ def stock_page():
                     "Ticker": ticker,
                     "Company": company,
                     "Timeframe": timeframe,
-                    "Technical Analysis": technical_analysis,
+                    "Technical Analysis": summary,
                     "News and Events Overall": txt_ovr,
                     "News and Events Summary": txt_summary,
                     "Fundamental Analysis": fundamental_analysis,
                     "data": recent_data.to_dict(orient="records"),
+                    "UserSelectedWeights":{
+                        "Technical Analysis Weight": tech_weight,
+                        "Fundamental Analysis Weight":fund_weight,
+                        "News and Events":news_weight
+                    },
                     "Results": {
                         "Summary": summary if 'summary' in locals() else "",
                         "SMA Results": sma_result if 'sma_result' in locals() else "",
                         "RSI Results": rsi_result if 'rsi_result' in locals() else "",
                         "MACD Results": macd_result if 'macd_result' in locals() else "",
                         "OBV Results": obv_result if 'obv_result' in locals() else "",
+                        "BD Results": bd_result if 'obv_result' in locals() else "",
                         "ADX Results": adx_result if 'adx_result' in locals() else ""
                     }
                 }
+
+                update_progress(progress_bar, 100, 100, "Finalising...")
+                ovr_summary = merge_news_and_technical_analysis_summary(gathered_data)
+
+                text_ovr = clean_html_response(ovr_summary)
+                st.components.v1.html(text_ovr, height=700, scrolling=True)
+
                 st.session_state["gathered_data"] = gathered_data
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
                 st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
@@ -423,6 +494,13 @@ def stock_page():
                         fig_adx = plot_adx(data)
                         st.plotly_chart(fig_adx)
                         st.write(adx_result)  # Display ADX result or interpretation
+                
+                st.download_button(
+                    label="Download as HTML",
+                    data=text_ovr,
+                    file_name="stock_analysis_summary.html",
+                    mime="text/html"
+                )
 
                 if st.button("Run Another Stock"):
                     analysis_complete = False
@@ -437,22 +515,21 @@ def stock_page():
             if technical_analysis and fundamental_analysis and not news_and_events:
                 with st.expander("Downloading Data... Click to View Progress"):
                     update_progress(progress_bar, 15, 15, "Analyzing...")
-                    results, recent_data, availability = calculate_technical_indicators(data,ticker)
+                    results, recent_data, availability,score,weighted_score = calculate_technical_indicators(data,ticker,weight_choice=weight_choice)
                     bd_result = results["bd_result"]
                     sma_result = results["sma_result"]
                     rsi_result = results["rsi_result"]
                     macd_result = results["macd_result"]
                     obv_result = results["obv_result"]
                     adx_result = results["adx_result"]
-                    summary = SUMMARY(ticker, bd_result, sma_result, rsi_result, macd_result, obv_result, adx_result)
+                    summary = SUMMARY(ticker, bd_result, sma_result, rsi_result, macd_result, obv_result, adx_result,weighted_score,weight_choice)
                     update_progress(progress_bar, 35, 35, "Technical Analysis complete!")
                     file_content = uploaded_file
                     file_name = uploaded_file.name
                     update_progress(progress_bar, 50, 50, "Analysing Financial Information...")  
                     fa_summary = FUNDAMENTAL_ANALYSIS(file_content, company, file_name)
                     update_progress(progress_bar, 80, 80, "Finalising...")  
-                    fa_ta_summary = merge_ta_fa_summary(fa_summary,summary)
-                    update_progress(progress_bar, 100, 100, "Analysis Complete...")
+                    
 
                 
 
@@ -462,8 +539,11 @@ def stock_page():
                 obv_available = availability['obv_available']
                 adx_available = availability['adx_available']
                 bbands_available = availability['bbands_available']
-                text_fa = convert_to_raw_text(fa_ta_summary)
-                st.write(text_fa)
+
+                #text_ovr = clean_html_response(fa_ta_summary)
+                #st.components.v1.html(text_ovr, height=700, scrolling=True)
+                #text_fa = convert_to_raw_text(fa_ta_summary)
+                #st.write(text_fa)
 
                 st.session_state["run_analysis_complete"] = True
 
@@ -474,6 +554,11 @@ def stock_page():
                     "Technical Analysis": technical_analysis,
                     "Fundamental Analysis": fundamental_analysis,
                     "data": recent_data.to_dict(orient="records"),
+                    "UserSelectedWeights":{
+                        "Technical Analysis Weight": tech_weight,
+                        "Fundamental Analysis Weight":fund_weight,
+                        "News and Events":news_weight
+                    },
                     "Results": {
                         "Summary": summary if 'summary' in locals() else "",
                         "Fundamental Analysis & Technical Analysis": fa_ta_summary if 'fa_ta_summary' in locals() else "",
@@ -485,27 +570,50 @@ def stock_page():
                         "Fundamental Analysis": fa_summary if 'fa_summary' in locals() else ""
                     }
                 }
+
+                fa_ta_summary = merge_ta_fa_summary(gathered_data)
+
+                text_ovr = clean_html_response(fa_ta_summary)
+                st.components.v1.html(text_ovr, height=700, scrolling=True)
+
                 st.session_state["gathered_data"] = gathered_data
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
                 st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
+
+                st.download_button(
+                    label="Download as HTML",
+                    data=text_ovr,
+                    file_name="stock_analysis_summary.html",
+                    mime="text/html"
+                )
+
+                if st.button("Run Another Stock"):
+                    analysis_complete = False
+                    st.session_state.technical_analysis = False
+                    st.session_state.news_and_events = False
+                    st.session_state["1_month"] = False
+                    st.session_state["3_months"] = False
+                    st.session_state["6_months"] = False
+                    st.session_state["1_year"] = False
+                    st.experimental_rerun() 
             
             if technical_analysis and fundamental_analysis and news_and_events:
                 with st.expander("Downloading Data... Click to View Progress"):
                     update_progress(progress_bar, 15, 15, "Analyzing...")
-                    results, recent_data, availability = calculate_technical_indicators(data,ticker)
+                    results, recent_data, availability,score,weighted_score  = calculate_technical_indicators(data,ticker)
                     bd_result = results["bd_result"]
                     sma_result = results["sma_result"]
                     rsi_result = results["rsi_result"]
                     macd_result = results["macd_result"]
                     obv_result = results["obv_result"]
                     adx_result = results["adx_result"]
-                    summary = SUMMARY(ticker, bd_result, sma_result, rsi_result, macd_result, obv_result, adx_result)
+                    summary = SUMMARY(ticker, bd_result, sma_result, rsi_result, macd_result, obv_result, adx_result,weighted_score,weight_choice)
                     update_progress(progress_bar, 35, 35, "Technical Analysis complete!")
                     update_progress(progress_bar, 45, 45, "Gathering News Data...")    
                     txt_summary = generate_company_news_message(company, timeframe)
                     update_progress(progress_bar, 75, 75, "Analysing News Data...")
-                    text = convert_to_raw_text(txt_summary)
-                    txt_summary = format_news(text)
+                    #text = convert_to_raw_text(txt_summary)
+                    txt_summary = format_news(txt_summary)
                     txt_ovr = txt_conclusion(txt_summary,company)
                     update_progress(progress_bar, 80, 80, "Analysing Financial Information...")  
                     file_content = uploaded_file
@@ -535,29 +643,51 @@ def stock_page():
                     "Ticker": ticker,
                     "Company": company,
                     "Timeframe": timeframe,
-                    "Technical Analysis": technical_analysis,
-                    "Fundamental Analysis": fundamental_analysis,
+                    "Technical Analysis": summary,
+                    "Fundamental Analysis": fa_summary,
                     "News and Events Overall": txt_ovr,
                     "News and Events Summary": txt_summary,
                     "data": recent_data.to_dict(orient="records"),
+                    "UserSelectedWeights":{
+                        "Technical Analysis Weight": tech_weight,
+                        "Fundamental Analysis Weight":fund_weight,
+                        "News and Events":news_weight
+                    },
                     "Results": {
-                        "Summary": summary if 'summary' in locals() else "",
+                        #"Summary": summary if 'summary' in locals() else "",
                         #"Fundamental Analysis & Technical Analysis & News": fa_ta_na_summary if 'fa_ta_summary' in locals() else "",
                         "SMA Results": sma_result if 'sma_result' in locals() else "",
                         "RSI Results": rsi_result if 'rsi_result' in locals() else "",
                         "MACD Results": macd_result if 'macd_result' in locals() else "",
                         "OBV Results": obv_result if 'obv_result' in locals() else "",
                         "ADX Results": adx_result if 'adx_result' in locals() else "",
-                        "Fundamental Analysis": fa_summary if 'fa_summary' in locals() else ""
                     }
                 }
 
-                html_output= generate_investment_analysis(gathered_data)
+                html_text= generate_investment_analysis(gathered_data)
+                html_output = clean_html_response(html_text)
                 st.components.v1.html(html_output, height=700, scrolling=True)
                 
                 st.session_state["gathered_data"] = gathered_data
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
                 st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
+
+                st.download_button(
+                    label="Download as HTML",
+                    data=text_ovr,
+                    file_name="stock_analysis_summary.html",
+                    mime="text/html"
+                )
+
+                if st.button("Run Another Stock"):
+                    analysis_complete = False
+                    st.session_state.technical_analysis = False
+                    st.session_state.news_and_events = False
+                    st.session_state["1_month"] = False
+                    st.session_state["3_months"] = False
+                    st.session_state["6_months"] = False
+                    st.session_state["1_year"] = False
+                    st.experimental_rerun() 
 
 
 
@@ -567,14 +697,14 @@ def stock_page():
                 txt_summary = generate_company_news_message(company, timeframe)
                 update_progress(progress_bar, 50, 50, "Analysing News Data...")
                 txt_summary = format_news(txt_summary)
-                txt_ovr = txt_conclusion(txt_summary,company)
-                update_progress(progress_bar, 100, 100, "Finalising...")
+               
                     
             
-            text = convert_to_raw_text(txt_summary)
-            text_ovr = convert_to_raw_text(txt_ovr)
-            st.write(text)
-            st.write(text_ovr)
+            #text = convert_to_raw_text(txt_summary)
+            #text_ovr = convert_to_raw_text(txt_ovr)
+          
+            #st.write(text)
+            #st.write(text_ovr)
 
             st.session_state["run_analysis_complete"] = True
 
@@ -582,22 +712,24 @@ def stock_page():
                 "Ticker": ticker,
                 "Company": company,
                 "Timeframe": timeframe,
-                "Technical Analysis": technical_analysis,
-                "News and Events Overall": txt_ovr,
                 "News and Events Summary": txt_summary,
-                "Fundamental Analysis": fundamental_analysis,
-                "Results": {
-                    "Summary": summary if 'summary' in locals() else "",
-                    "SMA Results": sma_result if 'sma_result' in locals() else "",
-                    "RSI Results": rsi_result if 'rsi_result' in locals() else "",
-                    "MACD Results": macd_result if 'macd_result' in locals() else "",
-                    "OBV Results": obv_result if 'obv_result' in locals() else "",
-                    "ADX Results": adx_result if 'adx_result' in locals() else ""
-                }
             }
+
+            txt_ovr = txt_conclusion2(gathered_data)
+            text_ovr = clean_html_response(txt_ovr)
+            st.components.v1.html(text_ovr, height=700, scrolling=True)
+
+
             st.session_state["gathered_data"] = gathered_data
             st.session_state["analysis_complete"] = True  # Mark analysis as complete
             st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
+
+            st.download_button(
+                label="Download as HTML",
+                data=text_ovr,
+                file_name="stock_analysis_summary.html",
+                mime="text/html"
+            )
 
             if st.button("Run Another Stock"):
                     analysis_complete = False
@@ -627,8 +759,11 @@ def stock_page():
                     update_progress(progress_bar, 100, 100, "Analysis Complete...")
                 
                 
-                text_ovr_t = convert_to_raw_text(fa_txt_summary)
-                st.write(text_ovr_t)
+                #text_ovr_t = convert_to_raw_text(fa_txt_summary)
+                #st.write(text_ovr_t)
+
+                text_ovr = clean_html_response(fa_txt_summary)
+                st.components.v1.html(text_ovr, height=700, scrolling=True)
 
                 st.session_state["run_analysis_complete"] = True
 
@@ -656,6 +791,13 @@ def stock_page():
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
                 st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
 
+                st.download_button(
+                    label="Download as HTML",
+                    data=text_ovr,
+                    file_name="stock_analysis_summary.html",
+                    mime="text/html"
+                )
+
                 if st.button("Run Another Stock"):
                     analysis_complete = False
                     st.session_state.technical_analysis = False
@@ -677,8 +819,12 @@ def stock_page():
                 fa_summary = FUNDAMENTAL_ANALYSIS(file_content, company, file_name)
                 update_progress(progress_bar, 100, 100, "Analysing Financial Information...")  
         
-            text_fs = convert_to_raw_text(fa_summary)
-            st.write(text_fs)
+            #text_fs = convert_to_raw_text(fa_summary)
+            #st.write(text_fs)
+
+            text_ovr = clean_html_response(fa_summary)
+            st.components.v1.html(text_ovr, height=700, scrolling=True)
+
 
             st.session_state["run_analysis_complete"] = True
 
@@ -704,6 +850,13 @@ def stock_page():
             st.session_state["analysis_complete"] = True  # Mark analysis as complete
             st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
 
+            st.download_button(
+                label="Download as HTML",
+                data=text_ovr,
+                file_name="stock_analysis_summary.html",
+                mime="text/html"
+            )
+
             if st.button("Run Another Stock"):
                         analysis_complete = False
                         st.session_state.technical_analysis = False
@@ -722,26 +875,10 @@ def convert_to_raw_text(text):
     return text
 
 def generate_investment_analysis(gathered_data):
-    """
-    Generate an investment analysis HTML using Claude.
+    today = date.today()
+    formatted = today.strftime('%Y-%m-%d')
+
     
-    Parameters:
-    gathered_data (dict): Dictionary containing all the analysis data
-    
-    Returns:
-    str: Complete HTML investment analysis
-    """
-    
-    # Initialize the Anthropic client
-    # You'll need to set your API key using st.secrets or environment variable
-    api_key = st.secrets.get("ANTHROPIC_API_KEY", None)
-    if not api_key:
-        st.error("Please set the ANTHROPIC_API_KEY in your Streamlit secrets.")
-        st.stop()
-        
-    client = anthropic.Anthropic(api_key=api_key)
-    
-    # Create the system prompt with the HTML template
     system_prompt = """
     You are an AI model designed to provide technical, fundamental, and news/events-based analysis to deliver actionable, long-term investment insights. Your role is to integrate financial health, competitive positioning, market trends, technical indicators, and relevant news/events into cohesive, data-driven recommendations for strategic, long-term investment strategies.
 
@@ -753,6 +890,12 @@ def generate_investment_analysis(gathered_data):
     - Fundamental Analysis: Summary of fundamental analysis
     - News data: News summaries for the company and related companies/sectors
     - Results: Technical indicator results (Summary, SMA, RSI, MACD, OBV, ADX)
+    - UserSelectedWeights: An object containing the user-selected weights for Technical, Fundamental, and News analyses, with each value between 0 and 1 (all weights sum to 1). Example:
+    {
+        "Technical Analysis": 0.4,
+        "Fundamental Analysis": 0.4,
+        "News and Events": 0.2
+    }
 
     You must parse this JSON data and use it to create a comprehensive investment report formatted as HTML.
 
@@ -926,6 +1069,13 @@ def generate_investment_analysis(gathered_data):
                 display: inline-block;
                 margin-bottom: 15px;
             }
+            .weights-section {
+                background-color: #f0f4f9;
+                border-left: 4px solid #2980b9;
+                margin-bottom: 30px;
+                padding: 15px;
+                border-radius: 0 5px 5px 0;
+            }
         </style>
     </head>
     <body>
@@ -942,9 +1092,17 @@ def generate_investment_analysis(gathered_data):
                 
                 <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
                     RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
+                    <br>
+                    <span style="font-size:0.95em; font-weight:normal;">
+                    <strong>Note:</strong> This recommendation is primarily driven by 
+                    <span class="highlight">
+                        [DOMINANT_ANALYSIS_TYPE_PLACEHOLDER]
+                    </span> 
+                    analysis, as selected by the user’s weightings.
+                    </span>
                 </div>
             </div>
-            
+
             <div class="section">
                 <h2>Fundamental Analysis</h2>
                 <div id="fundamental-analysis">
@@ -1028,6 +1186,19 @@ def generate_investment_analysis(gathered_data):
                 <h2>Integrated Analysis</h2>
                 <p>[INTEGRATED_ANALYSIS_PLACEHOLDER]</p>
                 
+                <div class="weights-section">
+                    <h3>User-Selected Analysis Weights</h3>
+                    <ul>
+                        <li><strong>Fundamental Analysis Weight:</strong> [FUNDAMENTAL_WEIGHT_PLACEHOLDER]</li>
+                        <li><strong>Technical Analysis Weight:</strong> [TECHNICAL_WEIGHT_PLACEHOLDER]</li>
+                        <li><strong>News and Events Weight:</strong> [NEWS_WEIGHT_PLACEHOLDER]</li>
+                    </ul>
+                    <p>
+                    These weights determined the overall influence of each analysis type on the final investment recommendation.
+                    The report will highlight which analysis category most influenced the recommendation, based on the user’s preferences.
+                    </p>
+                </div>
+                
                 <h3>Alignment Assessment</h3>
                 <table>
                     <tr>
@@ -1069,24 +1240,44 @@ def generate_investment_analysis(gathered_data):
                 </div>
             </div>
             
-            <div class="footnote">
-                <p>This investment analysis was generated on [CURRENT_DATE_PLACEHOLDER], and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            <div class="footnote"> """ f"""
+                <p>This investment analysis was generated on {formatted} , and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
             </div>
         </div>
     </body>
     </html>
     ```
+    Parse the provided JSON data and use it to replace the placeholders in the HTML template. Make sure to:
 
-    Parse the provided JSON data and use it to replace the placeholders in the HTML template. Make sure to extract:
-    
-    1. Ticker and Company information for the title
-    2. Timeframe for the timeframe display
-    3. Technical Analysis summary for the technical analysis section
-    4. Technical indicator results (SMA, RSI, MACD, OBV, ADX) for their dedicated sections
-    5. Fundamental Analysis for the fundamental analysis section
-    6. News data for the news analysis section
-    7. Based on all data, determine an appropriate investment recommendation (BUY, HOLD, or SELL)
-    
+        1. Extract the Ticker and Company information for the title.
+
+        2. Extract the Timeframe for the timeframe display.
+
+        3. Extract the Technical Analysis summary for the technical analysis section.
+
+        4. Extract Technical indicator results (SMA, RSI, MACD, OBV, ADX) for their dedicated sections.
+
+        5. Extract the Fundamental Analysis for the fundamental analysis section.
+
+        6. Extract News data for the news analysis section.
+
+        7. Extract the user-selected weightings for each analysis type (e.g., Fundamental, Technical, News/Events). Clearly display these weights in the "User-Selected Analysis Weights" section under Investment Recommendation.
+
+        8. When generating the overall investment recommendation, weigh the influence of each analysis type (Fundamental, Technical, News/Events) according to the user-selected weights. The final recommendation (BUY, HOLD, or SELL) should be determined by a weighted synthesis of these three components, based on their assigned importance. Clearly communicate if the result is driven more by one analysis type due to a higher weighting.
+
+        Recommendation Logic:
+
+    When generating the “Recommendation” (Buy, Hold, Sell), synthesize and weigh the findings from the Technical Analysis, Fundamental Analysis, and News/Events Analysis according to the provided weights.
+
+    If one weighting is clearly dominant (e.g., Fundamental Analysis = 0.7), emphasize in the summary and recommendation that the final decision is mainly driven by that analysis type.
+
+    The “Integrated Analysis” and “Alignment Assessment” sections should explicitly note which analysis types had the greatest influence on the final recommendation, based on the weights.
+
+    Justification:
+
+    The justification text for the recommendation must refer to the weights. For example:
+    “Given the user’s preference to weigh Fundamental Analysis at 60%, the final recommendation relies primarily on the company’s strong balance sheet and valuation ratios, despite short-term volatility in technical indicators.”
+
     Return the complete HTML document as your response.
     """
     
@@ -1096,17 +1287,16 @@ def generate_investment_analysis(gathered_data):
     # Call Claude API to generate the HTML with progress indicator
     with st.spinner("Generating investment analysis..."):
         try:
-            response = client.messages.create(
-                model="claude-3-7-sonnet-20250219",  # Use the appropriate Claude model
-                max_tokens=4000,
-                system=system_prompt,
+            response = client.chat.completions.create(
+                model="gpt-4.1",  # Use the appropriate Claude model
                 messages=[
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
                 ]
             )
             
             # Extract the response content
-            html_content = response.content[0].text
+            html_content = response.choices[0].message.content
             return html_content
             
         except Exception as e:
@@ -1114,55 +1304,266 @@ def generate_investment_analysis(gathered_data):
             return None
 
 def fa_summary_and_news_summary(fa_summary, txt_summary):
+    today = date.today()
+    formatted = today.strftime('%Y-%m-%d')
 
+
+    system_prompt = """ As an AI assistant dedicated to supporting traders and investors, your task is to produce a structured, detailed market analysis in valid HTML format. Focus exclusively on synthesizing recent news/events and fundamental analysis related to the selected stock. Do not include any technical analysis or technical indicator results.
+
+    The user will provide a JSON object containing all the data needed for analysis, including:
+    - Ticker: The stock ticker symbol
+    - Company: The company name
+    - Timeframe: The analysis timeframe
+    - FundamentalAnalysis: A comprehensive summary of the company’s fundamental position, including key financials, ratios, valuation, and management/industry factors.
+    - NewsData: A summary of all significant news and events for the company and its sector.
+    - SignificantEvents: A list of recent, impactful events affecting the company or its market environment.
+
+    You must parse this JSON data and use it to create a comprehensive investment report formatted as HTML.
+
+    **Instructions:**
+    - Parse the provided JSON data and use it to replace the placeholders in the HTML template below.
+    - Extract the Ticker and Company information for the title.
+    - Extract the Timeframe for the timeframe display.
+    - Extract the FundamentalAnalysis summary for the Fundamental Analysis section.
+    - Extract the NewsData for the News and Events Analysis section.
+    - Extract the SignificantEvents list for the 'Recent Significant Events' section.
+    - Generate a summary and investment recommendation (BUY, HOLD, or SELL) based on the synthesis of fundamental analysis and news/events. Justify your reasoning by referring to the financial fundamentals and the reported news/events.
+    - The 'Integrated Analysis' section should synthesize all insights from both fundamental and news/event signals into a final outlook and recommendation.
+    - Return the complete HTML document as your response. Do not include any Markdown or plaintext. Do not leave out any required section, even if some are brief or data is missing.
+
+    Your output must use <section>, <h2>, <h3>, <ul>, <li>, <table>, and <p> tags as appropriate. Use <strong> for key points.
+
+    **Follow this professional HTML template exactly, replacing the placeholders with values parsed from the provided JSON:**
+
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Comprehensive Fundamental & News Investment Analysis</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 0px;
+                background-color: transparent;
+            }
+            .container {
+                background-color: #fff;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                padding: 30px;
+                margin-bottom: 30px;
+            }
+            h1 {
+                color: #2c3e50;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+                margin-top: 0;
+            }
+            h2 {
+                color: #2c3e50;
+                border-left: 5px solid #3498db;
+                padding-left: 15px;
+                margin-top: 30px;
+                background-color: #f8f9fa;
+                padding: 10px 15px;
+                border-radius: 0 5px 5px 0;
+            }
+            h3 {
+                color: #2c3e50;
+                margin-top: 20px;
+                border-bottom: 1px dashed #ddd;
+                padding-bottom: 5px;
+            }
+            .section {
+                margin-bottom: 30px;
+                padding: 20px;
+                background-color: #f9f9f9;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            ul, ol {
+                padding-left: 25px;
+            }
+            ul li, ol li {
+                margin-bottom: 8px;
+            }
+            .recommendation {
+                font-weight: bold;
+                font-size: 1.1em;
+                padding: 15px;
+                margin: 15px 0;
+                border-radius: 5px;
+                text-align: center;
+            }
+            .buy {
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+            .hold {
+                background-color: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeeba;
+            }
+            .sell {
+                background-color: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }
+            .summary-box {
+                background-color: #e8f4fd;
+                border-left: 4px solid #3498db;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 0 5px 5px 0;
+            }
+            .timeframe {
+                font-weight: bold;
+                color: #2c3e50;
+                background-color: #e8f4fd;
+                padding: 5px 10px;
+                border-radius: 3px;
+                display: inline-block;
+                margin-bottom: 15px;
+            }
+            .footnote {
+                font-size: 0.9em;
+                font-style: italic;
+                color: #6c757d;
+                margin-top: 30px;
+                padding-top: 15px;
+                border-top: 1px solid #dee2e6;
+            }
+            .highlight {
+                background-color: #ffeaa7;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Comprehensive Fundamental & News Investment Analysis: [TICKER_PLACEHOLDER] - [COMPANY_PLACEHOLDER]</h1>
+            <div class="timeframe">Analysis Timeframe: [TIMEFRAME_PLACEHOLDER]</div>
+            
+            <section class="section">
+                <h2>Executive Summary</h2>
+                <div class="summary-box">
+                    <p>[SUMMARY_PLACEHOLDER]</p>
+                </div>
+                <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
+                    RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
+                    <br>
+                    <span style="font-size:0.95em; font-weight:normal;">
+                    <strong>Note:</strong> This recommendation is based on a synthesis of fundamental data and recent news/events.
+                    </span>
+                </div>
+            </section>
+            
+            <section class="section">
+                <h2>Fundamental Analysis</h2>
+                <div id="fundamental-analysis">
+                    [FUNDAMENTAL_ANALYSIS_PLACEHOLDER]
+                </div>
+            </section>
+            
+            <section class="section">
+                <h2>News and Events Analysis</h2>
+                <div id="news-analysis">
+                    [NEWS_ANALYSIS_PLACEHOLDER]
+                </div>
+                <h3>Recent Significant Events</h3>
+                <ul>
+                    [SIGNIFICANT_EVENTS_PLACEHOLDER]
+                </ul>
+            </section>
+            
+            <section class="section">
+                <h2>Integrated Analysis</h2>
+                <p>[INTEGRATED_ANALYSIS_PLACEHOLDER]</p>
+                <h3>Investment Recommendation</h3>
+                <div class="summary-box">
+                    <p><strong>Recommendation:</strong> [DETAILED_RECOMMENDATION_PLACEHOLDER]</p>
+                    <p><strong>Entry Points:</strong> [ENTRY_POINTS_PLACEHOLDER]</p>
+                    <p><strong>Exit Strategy:</strong> [EXIT_STRATEGY_PLACEHOLDER]</p>
+                    <p><strong>Risk Management:</strong> [RISK_MANAGEMENT_PLACEHOLDER]</p>
+                </div>
+            </section>
+            
+            <div class="footnote"> """ f"""
+                <p>This investment analysis was generated on {formatted}, and incorporates available financial fundamentals, news, and event data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
            
     chat_completion = client.chat.completions.create(
-        model="gpt-4o",  # Ensure that you use a model available in your OpenAI subscription
+        model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "You are an AI model trained to create a comprehensive investment report by integrating recent news and events data with fundamental analysis. Your role is to merge insights from an asset's financial health with the impact of current developments to produce a well-rounded assessment and actionable recommendations. Use the following format and guidelines to structure your response:"
-                    "\n\n"
-                    "Formatting Requirements:\n"
-                    "- **Headings and Subheadings**: Organize the report with clear headings (e.g., “Fundamental Analysis Summary,” “Recent News and Events,” “Investment Insights”).\n"
-                    #"- **Consistent Formatting**: Bold critical metrics and key event names (e.g., **Revenue Growth**, **Product Launch**).\n"
-                    "- **Bullet Points and Numbered Lists**: Use bullet points for lists of events and data points, and numbered lists for any recommended steps or prioritized actions.\n\n"
-                    
-                    "Structure Guidelines:\n"
-                    "1. **Introduction**:\n"
-                    "   - Briefly summarize the asset, its industry context, and the relevance of both fundamental analysis and recent events.\n"
-                    "   - State the objective: to integrate fundamental performance with recent news for a complete perspective on the asset's investment potential.\n\n"
-
-                    "2. **Fundamental Analysis Summary**:\n"
-                    "   - **Financial Performance**: Summarize key financial metrics (e.g., revenue growth, net income) reflecting the asset’s stability.\n"
-                    "   - **Valuation Metrics**: Include metrics like Price-to-Earnings (P/E) ratio, Price-to-Book (P/B) ratio, Dividend Yield, with industry comparisons.\n"
-                    "   - **Market Position and Competitive Standing**: Outline the asset’s market position, competitive strengths, and a brief SWOT summary.\n"
-                    "   - **Key Takeaways**: Summarize the overall financial health and growth outlook.\n\n"
-
-                    "3. **Recent News and Events Summary**:\n"
-                    "   - **Recent Developments**: Summarize major events impacting the asset (e.g., product launches, regulatory changes).\n"
-                    "   - **Market Sentiment and Impact**: Describe how each event has affected market sentiment, whether positively or negatively.\n"
-                    "   - **Macro and Industry-Level News**: Include any broader economic or industry-specific developments relevant to the asset.\n"
-                    "   - **Key Takeaways**: Highlight the potential influence of recent events on the asset’s outlook.\n\n"
-
-                    "4. **Integrated Investment Insights**:\n"
-                    "   - **Alignment of Fundamentals with Recent Events**: Describe how recent events support or challenge the asset’s fundamental outlook.\n"
-                    "   - **Market Sentiment vs. Intrinsic Value**: Evaluate the alignment of current sentiment with the asset’s intrinsic value.\n"
-                    "   - **Risk Factors**: Identify any risks that recent events may introduce, such as regulatory risks or changes in competitive positioning.\n\n"
-
-                    "5. **Actionable Recommendations**:\n"
-                    "   - **Investment Decision**: Provide a recommendation (Buy, Hold, Sell), considering both fundamental and recent event insights.\n"
-                    "   - **Entry and Exit Points**: Suggest entry/exit levels based on news and valuation metrics.\n"
-                    "   - **Risk Management and Monitoring**: Recommend any risk management strategies and important future events or updates to track.\n\n"
-
-                    "Style Requirements:\n"
-                    "- Maintain a professional, data-driven tone without personal opinions.\n"
-                    "- Minimize jargon, and briefly clarify terms where necessary.\n"
-                    "- Keep sentences and paragraphs clear and concise to maintain logical flow and readability."
-                    
-                    "Using these instructions, deliver a concise, actionable report combining news, events, and fundamental analysis for strategic investment decision-making."
-                    "OUTPUT AS RAW TEXT WITH NO FORMATTING"
+                "You are an AI model trained to create a comprehensive investment report by integrating recent news/events with fundamental analysis. "
+                "Your output must be structured as valid HTML using headings (<section>, <h2>, <h3>), <ul> for bullet points, <ol> for numbered lists, and <strong> for key metrics and event names. Do not use Markdown or plain text formatting—output HTML only.\n"
+                "\n"
+                "Follow this structure exactly:\n"
+                "<section id='introduction'>\n"
+                "  <h2>Introduction</h2>\n"
+                "  <ul>\n"
+                "    <li>Briefly summarize the asset, its industry context, and the relevance of both fundamental analysis and recent events.</li>\n"
+                "    <li>State the objective: to integrate fundamental performance with recent news for a complete perspective on the asset's investment potential.</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='fundamental-analysis-summary'>\n"
+                "  <h2>Fundamental Analysis Summary</h2>\n"
+                "  <ul>\n"
+                "    <li><strong>Financial Performance:</strong> Key financial metrics (e.g., <strong>Revenue Growth</strong>, <strong>Net Income</strong>) reflecting stability.</li>\n"
+                "    <li><strong>Valuation Metrics:</strong> Include <strong>P/E</strong>, <strong>P/B</strong>, <strong>Dividend Yield</strong>, with industry comparisons.</li>\n"
+                "    <li><strong>Market Position and Competitive Standing:</strong> Outline market position, strengths, and a brief <strong>SWOT</strong> summary.</li>\n"
+                "    <li><strong>Key Takeaways:</strong> Summarize overall financial health and growth outlook.</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='recent-news-events'>\n"
+                "  <h2>Recent News and Events Summary</h2>\n"
+                "  <ul>\n"
+                "    <li><strong>Recent Developments:</strong> Major events impacting the asset (e.g., <strong>Product Launch</strong>, <strong>Regulatory Change</strong>).</li>\n"
+                "    <li><strong>Market Sentiment and Impact:</strong> Describe how each event affected sentiment, positively or negatively.</li>\n"
+                "    <li><strong>Macro and Industry-Level News:</strong> Broader economic or industry developments relevant to the asset.</li>\n"
+                "    <li><strong>Key Takeaways:</strong> Highlight the potential influence of recent events on the asset’s outlook.</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='integrated-investment-insights'>\n"
+                "  <h2>Integrated Investment Insights</h2>\n"
+                "  <ul>\n"
+                "    <li><strong>Alignment of Fundamentals with Recent Events:</strong> Describe how recent events support or challenge the fundamental outlook.</li>\n"
+                "    <li><strong>Market Sentiment vs. Intrinsic Value:</strong> Evaluate how current sentiment aligns with intrinsic value.</li>\n"
+                "    <li><strong>Risk Factors:</strong> Identify any new or heightened risks introduced by recent events.</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='actionable-recommendations'>\n"
+                "  <h2>Actionable Recommendations</h2>\n"
+                "  <ol>\n"
+                "    <li><strong>Investment Decision:</strong> Provide a <strong>Buy</strong>, <strong>Hold</strong>, or <strong>Sell</strong> recommendation, integrating both analysis perspectives.</li>\n"
+                "    <li><strong>Entry and Exit Points:</strong> Suggest entry/exit levels based on news and valuation.</li>\n"
+                "    <li><strong>Risk Management and Monitoring:</strong> Recommend risk management strategies and future events/updates to watch.</li>\n"
+                "  </ol>\n"
+                "</section>\n"
+                
+                "Style-requirements"
+                "Maintain a professional, data-driven tone; avoid personal opinions."
+                "Minimize jargon and briefly clarify terms as needed."
+                "Keep sentences and paragraphs concise for logical flow and readability."
+                "Always include all sections and appropriate subheadings, even if information is brief. Output only valid HTML."
                 ),
             },
             {
@@ -1184,7 +1585,7 @@ def fa_summary_and_news_summary(fa_summary, txt_summary):
 def merge_ta_fa_na_summary(fa_summary,ta_summary,na_summary):
      
     chat_completion = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-4.1",
         messages=[
             {
                 "role": "system",
@@ -1273,58 +1674,301 @@ def merge_ta_fa_na_summary(fa_summary,ta_summary,na_summary):
 
 
 
-def merge_ta_fa_summary(fa_summary,ta_summary):
+def merge_ta_fa_summary(gathered_data):
+    today = date.today()
+    formatted = today.strftime('%Y-%m-%d')  
+
+
+    system_prompt = """
+    As an AI assistant dedicated to supporting traders and investors, your task is to produce a structured, detailed market analysis in valid HTML format.
+
+    The user will provide a JSON object containing all the data needed for analysis, including:
+    - Ticker: The stock ticker symbol
+    - Company: The company name
+    - Timeframe: The analysis timeframe
+    - Technical Analysis: Summary of technical analysis
+    - Fundamental Analysis: Summary of fundamental analysis
+    - Results: Technical indicator results (Summary, SMA, RSI, MACD, OBV, ADX)
+    - UserSelectedWeights: An object containing the user-selected weights for Technical and Fundamental analyses, with each value between 0 and 1 (all weights sum to 1). Example:
+    {
+        "Technical Analysis": 0.6,
+        "Fundamental Analysis": 0.4
+    }
+
+    You must parse this JSON data and use it to create a comprehensive investment report formatted as HTML.
+
+    **Instructions:**
+    - Parse the provided JSON data and use it to replace the placeholders in the HTML template below.
+    - Extract the Ticker and Company information for the title.
+    - Extract the Timeframe for the timeframe display.
+    - Extract the Technical Analysis summary for the technical analysis section.
+    - Extract Technical indicator results (SMA, RSI, MACD, OBV, ADX) for their dedicated sections.
+    - Extract the Fundamental Analysis summary for the fundamental analysis section.
+    - Extract the user-selected weightings for Technical and Fundamental Analysis. Clearly display these weights in the 'User-Selected Analysis Weights' section.
+    - When generating the overall investment recommendation, weigh the influence of Technical and Fundamental analyses according to the user-selected weights. The final recommendation (BUY, HOLD, or SELL) should be determined by a weighted synthesis of these two components, based on their assigned importance. Clearly communicate if the result is driven more by one analysis type due to a higher weighting.
+    - The 'Integrated Analysis' and 'Alignment Assessment' sections should explicitly note which analysis type(s) had the greatest influence on the final recommendation, based on the weights.
+    - The justification text for the recommendation must refer to the weights. For example: “Given the user’s preference to weigh Technical Analysis at 70%, the final recommendation relies primarily on chart patterns and indicator signals, despite mixed fundamentals.”
+    - Return the complete HTML document as your response. Do not include any Markdown or plaintext. Do not leave out any required section, even if some are brief or data is missing.
+
+    Your output must use <section>, <h2>, <h3>, <ul>, <li>, <table>, and <p> tags as appropriate. Use <strong> for key points.
+
+    **Follow this professional HTML template exactly, replacing the placeholders with values parsed from the provided JSON:**
+
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Comprehensive Investment Analysis</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 0px;
+                background-color: transparent;
+            }
+            .container {
+                background-color: #fff;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                padding: 30px;
+                margin-bottom: 30px;
+            }
+            h1 {
+                color: #2c3e50;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+                margin-top: 0;
+            }
+            h2 {
+                color: #2c3e50;
+                border-left: 5px solid #3498db;
+                padding-left: 15px;
+                margin-top: 30px;
+                background-color: #f8f9fa;
+                padding: 10px 15px;
+                border-radius: 0 5px 5px 0;
+            }
+            h3 {
+                color: #2c3e50;
+                margin-top: 20px;
+                border-bottom: 1px dashed #ddd;
+                padding-bottom: 5px;
+            }
+            .section {
+                margin-bottom: 30px;
+                padding: 20px;
+                background-color: #f9f9f9;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            .recommendation {
+                font-weight: bold;
+                font-size: 1.1em;
+                padding: 15px;
+                margin: 15px 0;
+                border-radius: 5px;
+                text-align: center;
+            }
+            .buy {
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+            .hold {
+                background-color: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeeba;
+            }
+            .sell {
+                background-color: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }
+            .indicator {
+                margin-bottom: 20px;
+                padding: 15px;
+                border-radius: 5px;
+                background-color: #f8f9fa;
+                border-left: 4px solid #3498db;
+            }
+            .indicator h4 {
+                margin-top: 0;
+                color: #2980b9;
+            }
+            .summary-box {
+                background-color: #e8f4fd;
+                border-left: 4px solid #3498db;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 0 5px 5px 0;
+            }
+            .timeframe {
+                font-weight: bold;
+                color: #2c3e50;
+                background-color: #e8f4fd;
+                padding: 5px 10px;
+                border-radius: 3px;
+                display: inline-block;
+                margin-bottom: 15px;
+            }
+            .weights-section {
+                background-color: #f0f4f9;
+                border-left: 4px solid #2980b9;
+                margin-bottom: 30px;
+                padding: 15px;
+                border-radius: 0 5px 5px 0;
+            }
+            .footnote {
+                font-size: 0.9em;
+                font-style: italic;
+                color: #6c757d;
+                margin-top: 30px;
+                padding-top: 15px;
+                border-top: 1px solid #dee2e6;
+            }
+            .highlight {
+                background-color: #ffeaa7;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Comprehensive Investment Analysis: [TICKER_PLACEHOLDER] - [COMPANY_PLACEHOLDER]</h1>
+            <div class="timeframe">Analysis Timeframe: [TIMEFRAME_PLACEHOLDER]</div>
+            
+            <section class="section">
+                <h2>Executive Summary</h2>
+                <div class="summary-box">
+                    <p>[SUMMARY_PLACEHOLDER]</p>
+                </div>
+                <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
+                    RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
+                    <br>
+                    <span style="font-size:0.95em; font-weight:normal;">
+                    <strong>Note:</strong> This recommendation is primarily driven by 
+                    <span class="highlight">
+                        [DOMINANT_ANALYSIS_TYPE_PLACEHOLDER]
+                    </span>
+                    analysis, as selected by the user’s weightings.
+                    </span>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Technical Analysis</h2>
+                <div id="technical-analysis">
+                    [TECHNICAL_ANALYSIS_PLACEHOLDER]
+                </div>
+                <h3>Technical Indicators</h3>
+                <div class="indicator">
+                    <h4>SMA (Simple Moving Average)</h4>
+                    <p>[SMA_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                <div class="indicator">
+                    <h4>RSI (Relative Strength Index)</h4>
+                    <p>[RSI_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                <div class="indicator">
+                    <h4>MACD (Moving Average Convergence Divergence)</h4>
+                    <p>[MACD_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                <div class="indicator">
+                    <h4>OBV (On-Balance Volume)</h4>
+                    <p>[OBV_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                <div class="indicator">
+                    <h4>ADX (Average Directional Index)</h4>
+                    <p>[ADX_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Fundamental Analysis</h2>
+                <div id="fundamental-analysis">
+                    [FUNDAMENTAL_ANALYSIS_PLACEHOLDER]
+                </div>
+                <h3>Key Financial Metrics</h3>
+                <div class="indicator">
+                    <h4>Summary</h4>
+                    <p>[FINANCIAL_METRICS_PLACEHOLDER]</p>
+                </div>
+                <h3>Valuation Analysis</h3>
+                <div class="indicator">
+                    <h4>Summary</h4>
+                    <p>[VALUATION_METRICS_PLACEHOLDER]</p>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Integrated Analysis</h2>
+                <p>[INTEGRATED_ANALYSIS_PLACEHOLDER]</p>
+                <div class="weights-section">
+                    <h3>User-Selected Analysis Weights</h3>
+                    <ul>
+                        <li><strong>Technical Analysis Weight:</strong> [TECHNICAL_WEIGHT_PLACEHOLDER]</li>
+                        <li><strong>Fundamental Analysis Weight:</strong> [FUNDAMENTAL_WEIGHT_PLACEHOLDER]</li>
+                    </ul>
+                    <p>
+                    These weights determined the overall influence of each analysis type on the final investment recommendation.
+                    The report will highlight which analysis category most influenced the recommendation, based on the user’s preferences.
+                    </p>
+                </div>
+                <h3>Alignment Assessment</h3>
+                <table>
+                    <tr>
+                        <th>Analysis Type</th>
+                        <th>Outlook</th>
+                        <th>Confidence</th>
+                    </tr>
+                    <tr>
+                        <td>Technical</td>
+                        <td>[TECHNICAL_OUTLOOK_PLACEHOLDER]</td>
+                        <td>[TECHNICAL_CONFIDENCE_PLACEHOLDER]</td>
+                    </tr>
+                    <tr>
+                        <td>Fundamental</td>
+                        <td>[FUNDAMENTAL_OUTLOOK_PLACEHOLDER]</td>
+                        <td>[FUNDAMENTAL_CONFIDENCE_PLACEHOLDER]</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Overall</strong></td>
+                        <td><strong>[OVERALL_OUTLOOK_PLACEHOLDER]</strong></td>
+                        <td><strong>[OVERALL_CONFIDENCE_PLACEHOLDER]</strong></td>
+                    </tr>
+                </table>
+                <h3>Investment Recommendation</h3>
+                <div class="summary-box">
+                    <p><strong>Recommendation:</strong> [DETAILED_RECOMMENDATION_PLACEHOLDER]</p>
+                    <p><strong>Entry Points:</strong> [ENTRY_POINTS_PLACEHOLDER]</p>
+                    <p><strong>Exit Strategy:</strong> [EXIT_STRATEGY_PLACEHOLDER]</p>
+                    <p><strong>Risk Management:</strong> [RISK_MANAGEMENT_PLACEHOLDER]</p>
+                </div>
+            </section>
+            <div class="footnote">""" f"""
+                <p>This investment analysis was generated on {formatted}, and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    user_message = f"The data to analyse: {json.dumps(gathered_data)}"
 
     chat_completion = client.chat.completions.create(
-        model="gpt-4o",  # Ensure that you use a model available in your OpenAI subscription
+        model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "You are an AI model designed to provide comprehensive, long-term investment analysis by merging fundamental and technical analysis. Your role is to combine insights from financial health, competitive positioning, and market trends with technical indicators to deliver actionable, data-driven recommendations tailored for long-term investment strategies. Use the following structure and formatting guidelines to provide a detailed and practical report:"
-                    "Formatting Requirements:"
-                    "Organized Headings and Subheadings: Use clear headings and subheadings to separate sections (e.g., “Long-Term Financial Overview,” “Technical Indicators for Trend Analysis,” “Long-Term Investment Recommendations”)."
-                    "Bullet Points and Numbered Lists: Use bullet points for lists and numbered lists for prioritized or sequential steps, especially in recommendation sections."
-                    "Formatting for Key Metrics and Indicators:"
-                    "Bold critical financial terms and technical indicators (e.g., Net Profit Margin, Relative Strength Index (RSI))."
-                    "Structure Guidelines:"
-                    "Introduction:"
-                    "Briefly summarize the asset’s profile, market sector, and relevance for long-term investors."
-                    "Highlight the objective of integrating fundamental strength with technical trend analysis to support long-term holding decisions."
-                    "Fundamental Analysis:"
-                    "Financial Performance and Stability: Examine key financial statements (income statement, balance sheet, and cash flow) to evaluate profitability, solvency, and growth. Focus on metrics that support stability, such as revenue growth, earnings stability, and debt management.Valuation Metrics: Highlight ratios relevant to long-term value (e.g., Price-to-Earnings (P/E), Price-to-Book (P/B), and Dividend Yield) and compare them to industry averages."
-                    "Competitive Position and Market Standing: Assess the asset’s market share, competitive advantages, and potential risks. Include a SWOT analysis to illustrate long-term growth drivers and potential challenges."
-                    "Technical Analysis for Long-Term Trend:"
-                    "Key Indicators for Long-Term Trends:"
-                    "MACD (Moving Average Convergence Divergence): Examine long-term trends by focusing on signal line crossovers and divergence from the price to identify trend strength."
-                    "ADX (Average Directional Index): Use ADX to measure trend strength (with readings above 20 typically indicating a strong trend). Specify whether a strong uptrend or downtrend is evident."
-                    "On-Balance Volume (OBV): Analyze OBV to determine if volume trends align with price trends, confirming potential long-term price direction."
-                    "Bollinger Bands: Use Bollinger Bands to identify volatility and potential entry points when the price approaches the upper or lower bands over longer timeframes."
-                    "Relative Strength Index (RSI): Focus on RSI values over extended periods to determine if the asset is overbought or oversold, guiding long-term entry or exit points."
-                    "Simple Moving Averages (SMA) (e.g., 50-day, 200-day): Track crossovers between SMAs to identify long-term bullish or bearish trends (e.g., a “golden cross” when the 50-day SMA rises above the 200-day SMA)."
-                    "Integrated Analysis:"
-
-                    "Correlation of Fundamental Strength with Technical Trends: Discuss how the asset’s intrinsic value and financial health align with its technical trend, focusing on consistency or divergence between long-term value indicators and current market trends."
-                    "Market Sentiment and Timing Implications: Summarize how technical signals (e.g., RSI, ADX, MACD) align with long-term valuation and growth potential. Highlight any discrepancies between market sentiment and intrinsic value for timing entry points."
-                    "Long-Term Actionable Recommendations:"
-                    "Investment Decision: Clearly state a Buy, Hold, or Sell recommendation, backed by fundamental and technical indicators. For example, if financial metrics are strong and technical indicators signal a bullish trend, recommend a Buy with specific reasons."
-                    "Entry and Exit Points: Identify ideal entry points based on long-term technical indicators (e.g., price touching lower Bollinger Band in an uptrend or RSI below 30 in a fundamentally strong asset)."
-                    "Risk Management Strategies: Outline risk mitigation techniques suitable for long-term investors, such as setting a stop-loss level based on SMA trends or diversifying within the sector to reduce exposure."
-                    "Performance Monitoring for Long-Term: List key fundamental updates (e.g., quarterly earnings) and technical indicators (e.g., changes in ADX, MACD crossovers) to monitor periodically for alignment with the long-term outlook."
-                    "Style Requirements:"
-                    "Maintain a professional, analytical tone, avoiding personal opinions."
-                    "Minimize jargon, explaining technical terms in plain language where necessary for clarity."
-                    "Keep sentences and paragraphs concise, ensuring the report remains readable and logically structured for a long-term investment context."
-                    "Using these instructions, you will deliver a detailed, actionable report that enables readers to make well-informed, strategic investment decisions based on an integrated approach to fundamental and technical analysis."
-                                        #Add Press releases, investor oppinions (X), First World Pharma, Bloomberg, Market Watch, seperate segment,add sources, add graphs
-                    
-                ),
+                "content": system_prompt
             },
             {
                 "role": "user",
-                "content": (
-                    f"From and merge these texts, Technical Analysis: {ta_summary} and Fundamental Analysis: {fa_summary}"
-                ),
+                "content": user_message
             },
         ]
     )
@@ -1340,11 +1984,18 @@ def merge_ta_fa_summary(fa_summary,ta_summary):
             #analysis_type = "Technical Analysis"
         #elif n_col2.button("News and Events"):
             #analysis_type = "News and Events"
+def clean_html_response(response):
+    # Remove markdown formatting from response
+    if response.startswith("```html"):
+        response = response.lstrip("```html").strip()
+    if response.endswith("```"):
+        response = response.rstrip("```").strip()
+    return response
 
 def txt_conclusion(news_summary,company_name):
     # OpenAI API call to create a merged summary
     chat_completion = client.chat.completions.create(
-        model="gpt-4o",  # Ensure that you use a model available in your OpenAI subscription
+        model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
         messages=[
             {
                 "role": "system",
@@ -1382,48 +2033,586 @@ def txt_conclusion(news_summary,company_name):
     response = chat_completion.choices[0].message.content
     return response 
 
-    
+def txt_conclusion2(gathered_data):
+    today = date.today()
+    formatted = today.strftime('%Y-%m-%d')
 
-def merge_news_and_technical_analysis_summary(company_name, news_summary,technical_summary,time_period):
-    """
-    Combines the news and events summary with the technical analysis summary using OpenAI's GPT model.
-    
-    Parameters:
-    - company_name: The name of the company being analyzed.
-    - news_summary: The summarized news and events information.
-    - technical_summary: The summarized technical analysis output.
-
-    Returns:
-    - An overall summary that integrates both the news and technical analysis in a cohesive manner.
-    """
     # OpenAI API call to create a merged summary
+    system_prompt = """ As an AI assistant dedicated to supporting traders and investors, your task is to produce a structured, detailed market analysis in valid HTML format. Focus exclusively on synthesizing recent news and events related to the selected stock and its sector. Do not include technical or fundamental analysis.
+
+    The user will provide a JSON object containing all the data needed for analysis, including:
+    - Ticker: The stock ticker symbol
+    - Company: The company name
+    - Timeframe: The analysis timeframe
+    - NewsData: A summary of all significant news and events for the company and its sector.
+    - SignificantEvents: A list of recent, impactful events affecting the company or its market environment.
+
+    You must parse this JSON data and use it to create a comprehensive investment report formatted as HTML.
+
+    **Instructions:**
+    - Parse the provided JSON data and use it to replace the placeholders in the HTML template below.
+    - Extract the Ticker and Company information for the title.
+    - Extract the Timeframe for the timeframe display.
+    - Extract the NewsData for the News and Events Analysis section.
+    - Extract the SignificantEvents list for the 'Recent Significant Events' section.
+    - Generate a summary and investment recommendation (BUY, HOLD, or SELL) based exclusively on news and events. Clearly justify your reasoning by referencing the reported news and events.
+    - The 'Integrated Analysis' section should synthesize all news and event signals into a final outlook and recommendation.
+    - Return the complete HTML document as your response. Do not include any Markdown or plaintext. Do not leave out any required section, even if some are brief or data is missing.
+
+    Your output must use <section>, <h2>, <h3>, <ul>, <li>, <table>, and <p> tags as appropriate. Use <strong> for key points.
+
+    **Follow this professional HTML template exactly, replacing the placeholders with values parsed from the provided JSON:**
+
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Comprehensive News & Events Investment Analysis</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 0px;
+                background-color: transparent;
+            }
+            .container {
+                background-color: #fff;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                padding: 30px;
+                margin-bottom: 30px;
+            }
+            h1 {
+                color: #2c3e50;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+                margin-top: 0;
+            }
+            h2 {
+                color: #2c3e50;
+                border-left: 5px solid #3498db;
+                padding-left: 15px;
+                margin-top: 30px;
+                background-color: #f8f9fa;
+                padding: 10px 15px;
+                border-radius: 0 5px 5px 0;
+            }
+            h3 {
+                color: #2c3e50;
+                margin-top: 20px;
+                border-bottom: 1px dashed #ddd;
+                padding-bottom: 5px;
+            }
+            .section {
+                margin-bottom: 30px;
+                padding: 20px;
+                background-color: #f9f9f9;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            .recommendation {
+                font-weight: bold;
+                font-size: 1.1em;
+                padding: 15px;
+                margin: 15px 0;
+                border-radius: 5px;
+                text-align: center;
+            }
+            .buy {
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+            .hold {
+                background-color: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeeba;
+            }
+            .sell {
+                background-color: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }
+            .summary-box {
+                background-color: #e8f4fd;
+                border-left: 4px solid #3498db;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 0 5px 5px 0;
+            }
+            .timeframe {
+                font-weight: bold;
+                color: #2c3e50;
+                background-color: #e8f4fd;
+                padding: 5px 10px;
+                border-radius: 3px;
+                display: inline-block;
+                margin-bottom: 15px;
+            }
+            .footnote {
+                font-size: 0.9em;
+                font-style: italic;
+                color: #6c757d;
+                margin-top: 30px;
+                padding-top: 15px;
+                border-top: 1px solid #dee2e6;
+            }
+            .highlight {
+                background-color: #ffeaa7;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Comprehensive News & Events Investment Analysis: [TICKER_PLACEHOLDER] - [COMPANY_PLACEHOLDER]</h1>
+            <div class="timeframe">Analysis Timeframe: [TIMEFRAME_PLACEHOLDER]</div>
+            
+            <section class="section">
+                <h2>Executive Summary</h2>
+                <div class="summary-box">
+                    <p>[SUMMARY_PLACEHOLDER]</p>
+                </div>
+                <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
+                    RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
+                    <br>
+                    <span style="font-size:0.95em; font-weight:normal;">
+                    <strong>Note:</strong> This recommendation is based solely on the latest news and event signals.
+                    </span>
+                </div>
+            </section>
+            
+            <section class="section">
+                <h2>News and Events Analysis</h2>
+                <div id="news-analysis">
+                    [NEWS_ANALYSIS_PLACEHOLDER]
+                </div>
+                
+                <h3>Recent Significant Events</h3>
+                <ul>
+                    [SIGNIFICANT_EVENTS_PLACEHOLDER]
+                </ul>
+            </section>
+            
+            <section class="section">
+                <h2>Integrated Analysis</h2>
+                <p>[INTEGRATED_ANALYSIS_PLACEHOLDER]</p>
+                <h3>Investment Recommendation</h3>
+                <div class="summary-box">
+                    <p><strong>Recommendation:</strong> [DETAILED_RECOMMENDATION_PLACEHOLDER]</p>
+                    <p><strong>Entry Points:</strong> [ENTRY_POINTS_PLACEHOLDER]</p>
+                    <p><strong>Exit Strategy:</strong> [EXIT_STRATEGY_PLACEHOLDER]</p>
+                    <p><strong>Risk Management:</strong> [RISK_MANAGEMENT_PLACEHOLDER]</p>
+                </div>
+            </section>
+            
+            <div class="footnote"> """ f"""
+                <p>This investment analysis was generated on {formatted}, and incorporates available news and event data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    user_message = f"The data to analyse: {json.dumps(gathered_data)}"
+
     chat_completion = client.chat.completions.create(
-        model="gpt-4o",  # Ensure that you use a model available in your OpenAI subscription
+        model="gpt-4.1",
         messages=[
             {
                 "role": "system",
-                "content": (
-                    "As an AI assistant dedicated to supporting traders and investors in their decision-making processes, your primary objective is to synthesize relevant market data by merging current news and events with thorough technical analysis.  "
-                    "Begin by analyzing the latest market news, focusing particularly on economic indicators, press releases, and significant announcements that may influence stock performance. Simultaneously, evaluate technical trends, including price movements, volume patterns, and key indicators (such as moving averages and RSI) for the selected stock. "
-                    "Once you have gathered and analyzed this information, compile a comprehensive summary that is clear and concise. This summary should include a detailed overview of both the fundamental aspects, highlighting impactful news, and the technical trends that characterize the stock's movement."
-                    "Following this, present an elaborate and focused overall assessment that includes actionable recommendations based on anticipated future news and historical trends. "
-                    "In addition to the main summary, create a separate segment that includes insights from various sources such as press releases, investor opinions, First World Pharma, Bloomberg, and Market Watch. Ensure that you properly cite all sources used to enhance credibility and allow for further investigation."
-                    "Structure the output as follows: 1.Introduction: Brief overview of the stock and its relevance in the current market context. 2. News Analysis: Summary of significant news and events affecting the stock."
-                    "3. Technical Analysis: Insights on price movements and relevant technical indicators. 4. Comprehensive Summary: A synthesis of the news and technical analysis, along with actionable recommendations."
-                    "Additional Sources: A separate section listing sources like press releases and opinions from the mentioned platforms, ensuring proper citations."
-                    #Add Press releases, investor oppinions (X), First World Pharma, Bloomberg, Market Watch, seperate segment,add sources, add graphs
-                    
-                ),
+                "content": system_prompt
             },
             {
                 "role": "user",
-                "content": (
-                    f"Please create a combined summary for the company {company_name} using the following information:\n\n"
-                    f"News and Events Summary:\n{news_summary}\n\n"
-                    f"Technical Analysis Summary:\n{technical_summary}\n\n"
-                    "Merge these details into one cohesive summary, make it flow, highlighting how the news may impact the stock's technical indicators and providing "
-                    f"an in-depth overall outlook on the stock's potential future performance for the next coming {time_period}, plus provide actionable recommendations as well."
-                ),
+                "content": user_message
+            }
+        ]
+    )
+
+# Extract and return the AI-generated response
+    response = chat_completion.choices[0].message.content
+    return response 
+
+    
+
+def merge_news_and_technical_analysis_summary(gathered_data):
+    today = date.today()
+    formatted = today.strftime('%Y-%m-%d')
+
+
+    system_prompt = """
+    As an AI assistant dedicated to supporting traders and investors, your task is to produce a structured, detailed market analysis in valid HTML format.
+    Merge the latest news and technical analysis for the selected stock, ensuring all insights are clearly organized.
+
+    The user will provide a JSON object containing all the data needed for analysis, including:
+    - Ticker: The stock ticker symbol
+    - Company: The company name
+    - Timeframe: The analysis timeframe
+    - Technical Analysis: Summary of technical analysis
+    - News data: News summaries for the company and related companies/sectors
+    - Results: Technical indicator results (Summary, SMA, RSI, MACD, OBV, ADX)
+    - UserSelectedWeights: An object containing the user-selected weights for Technical, Fundamental, and News analyses, with each value between 0 and 1 (all weights sum to 1). Example:
+    {
+        "Technical Analysis": 0.4,
+        "Fundamental Analysis": 0.4,
+        "News and Events": 0.2
+    }
+
+    You must parse this JSON data and use it to create a comprehensive investment report formatted as HTML.
+
+    Follow this HTML template exactly, replacing the placeholder content with information derived from the JSON data:
+
+    Your output must use <section>, <h2>, <h3>, <ul>, <li>, <table>, and <p> tags as appropriate. Use <strong> for key points.
+    Follow this professional HTML template exactly, replacing the placeholders with values parsed from the provided JSON:
+
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Comprehensive Investment Analysis</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 0px;
+                background-color: transparent;
+            }
+            .container {
+                background-color: #fff;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                padding: 30px;
+                margin-bottom: 30px;
+            }
+            h1 {
+                color: #2c3e50;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+                margin-top: 0;
+            }
+            h2 {
+                color: #2c3e50;
+                border-left: 5px solid #3498db;
+                padding-left: 15px;
+                margin-top: 30px;
+                background-color: #f8f9fa;
+                padding: 10px 15px;
+                border-radius: 0 5px 5px 0;
+            }
+            h3 {
+                color: #2c3e50;
+                margin-top: 20px;
+                border-bottom: 1px dashed #ddd;
+                padding-bottom: 5px;
+            }
+            .section {
+                margin-bottom: 30px;
+                padding: 20px;
+                background-color: #f9f9f9;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            ul, ol {
+                padding-left: 25px;
+            }
+            ul li, ol li {
+                margin-bottom: 8px;
+            }
+            .recommendation {
+                font-weight: bold;
+                font-size: 1.1em;
+                padding: 15px;
+                margin: 15px 0;
+                border-radius: 5px;
+                text-align: center;
+            }
+            .buy {
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+            .hold {
+                background-color: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeeba;
+            }
+            .sell {
+                background-color: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }
+            .metrics {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 15px;
+                margin: 20px 0;
+            }
+            .metric-card {
+                background-color: #f0f7ff;
+                border-radius: 5px;
+                padding: 15px;
+                flex: 1;
+                min-width: 200px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            .metric-title {
+                font-weight: bold;
+                color: #2980b9;
+                margin-bottom: 5px;
+            }
+            .metric-value {
+                font-size: 1.2em;
+                font-weight: bold;
+            }
+            .chart-container {
+                margin: 20px 0;
+                text-align: center;
+            }
+            .footnote {
+                font-size: 0.9em;
+                font-style: italic;
+                color: #6c757d;
+                margin-top: 30px;
+                padding-top: 15px;
+                border-top: 1px solid #dee2e6;
+            }
+            strong {
+                color: #2980b9;
+            }
+            .highlight {
+                background-color: #ffeaa7;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 20px 0;
+            }
+            th, td {
+                padding: 12px 15px;
+                text-align: left;
+                border-bottom: 1px solid #ddd;
+            }
+            th {
+                background-color: #f2f2f2;
+                font-weight: bold;
+            }
+            tr:hover {
+                background-color: #f5f5f5;
+            }
+            .summary-box {
+                background-color: #e8f4fd;
+                border-left: 4px solid #3498db;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 0 5px 5px 0;
+            }
+            .indicator {
+                margin-bottom: 20px;
+                padding: 15px;
+                border-radius: 5px;
+                background-color: #f8f9fa;
+                border-left: 4px solid #3498db;
+            }
+            .indicator h4 {
+                margin-top: 0;
+                color: #2980b9;
+            }
+            .timeframe {
+                font-weight: bold;
+                color: #2c3e50;
+                background-color: #e8f4fd;
+                padding: 5px 10px;
+                border-radius: 3px;
+                display: inline-block;
+                margin-bottom: 15px;
+            }
+            .weights-section {
+                background-color: #f0f4f9;
+                border-left: 4px solid #2980b9;
+                margin-bottom: 30px;
+                padding: 15px;
+                border-radius: 0 5px 5px 0;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Comprehensive Investment Analysis: [TICKER_PLACEHOLDER] - [COMPANY_PLACEHOLDER]</h1>
+            
+            <div class="timeframe">Analysis Timeframe: [TIMEFRAME_PLACEHOLDER]</div>
+            
+            <div class="section">
+                <h2>Executive Summary</h2>
+                <div class="summary-box">
+                    <p>[SUMMARY_PLACEHOLDER]</p>
+                </div>
+                
+                <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
+                    RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
+                    <br>
+                    <span style="font-size:0.95em; font-weight:normal;">
+                    <strong>Note:</strong> This recommendation is primarily driven by 
+                    <span class="highlight">
+                        [DOMINANT_ANALYSIS_TYPE_PLACEHOLDER]
+                    </span> 
+                    analysis, as selected by the user’s weightings.
+                    </span>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>Technical Analysis</h2>
+                <div id="technical-analysis">
+                    [TECHNICAL_ANALYSIS_PLACEHOLDER]
+                </div>
+                
+                <h3>Technical Indicators</h3>
+                
+                <div class="indicator">
+                    <h4>SMA (Simple Moving Average)</h4>
+                    <p>[SMA_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                
+                <div class="indicator">
+                    <h4>RSI (Relative Strength Index)</h4>
+                    <p>[RSI_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                
+                <div class="indicator">
+                    <h4>MACD (Moving Average Convergence Divergence)</h4>
+                    <p>[MACD_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                
+                <div class="indicator">
+                    <h4>OBV (On-Balance Volume)</h4>
+                    <p>[OBV_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                
+                <div class="indicator">
+                    <h4>ADX (Average Directional Index)</h4>
+                    <p>[ADX_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                
+                <h3>Support and Resistance Levels</h3>
+                <table>
+                    <tr>
+                        <th>Level Type</th>
+                        <th>Price Point</th>
+                        <th>Strength</th>
+                    </tr>
+                    [SUPPORT_RESISTANCE_PLACEHOLDER]
+                </table>
+            </div>
+            
+            <div class="section">
+                <h2>News and Events Analysis</h2>
+                <div id="news-analysis">
+                    [NEWS_ANALYSIS_PLACEHOLDER]
+                </div>
+                
+                <h3>Recent Significant Events</h3>
+                <ul>
+                    [SIGNIFICANT_EVENTS_PLACEHOLDER]
+                </ul>
+            </div>
+            
+            <div class="section">
+                <h2>Integrated Analysis</h2>
+                <p>[INTEGRATED_ANALYSIS_PLACEHOLDER]</p>
+                
+                <div class="weights-section">
+                    <h3>User-Selected Analysis Weights</h3>
+                    <ul>
+                        <li><strong>Technical Analysis Weight:</strong> [TECHNICAL_WEIGHT_PLACEHOLDER]</li>
+                        <li><strong>News and Events Weight:</strong> [NEWS_WEIGHT_PLACEHOLDER]</li>
+                    </ul>
+                    <p>
+                    These weights determined the overall influence of each analysis type on the final investment recommendation.
+                    The report will highlight which analysis category most influenced the recommendation, based on the user’s preferences.
+                    </p>
+                </div>
+                
+                <h3>Alignment Assessment</h3>
+                <table>
+                    <tr>
+                        <th>Analysis Type</th>
+                        <th>Outlook</th>
+                        <th>Confidence</th>
+                    </tr>
+                    <tr>
+                        <td>Technical</td>
+                        <td>[TECHNICAL_OUTLOOK_PLACEHOLDER]</td>
+                        <td>[TECHNICAL_CONFIDENCE_PLACEHOLDER]</td>
+                    </tr>
+                    <tr>
+                        <td>News/Events</td>
+                        <td>[NEWS_OUTLOOK_PLACEHOLDER]</td>
+                        <td>[NEWS_CONFIDENCE_PLACEHOLDER]</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Overall</strong></td>
+                        <td><strong>[OVERALL_OUTLOOK_PLACEHOLDER]</strong></td>
+                        <td><strong>[OVERALL_CONFIDENCE_PLACEHOLDER]</strong></td>
+                    </tr>
+                </table>
+                
+                <h3>Investment Recommendation</h3>
+                <div class="summary-box">
+                    <p><strong>Recommendation:</strong> [DETAILED_RECOMMENDATION_PLACEHOLDER]</p>
+                    
+                    <p><strong>Entry Points:</strong> [ENTRY_POINTS_PLACEHOLDER]</p>
+                    
+                    <p><strong>Exit Strategy:</strong> [EXIT_STRATEGY_PLACEHOLDER]</p>
+                    
+                    <p><strong>Risk Management:</strong> [RISK_MANAGEMENT_PLACEHOLDER]</p>
+                </div>
+            </div>
+            
+            <div class="footnote">""" f"""
+                <p>This investment analysis was generated on {formatted}, and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+
+    Instructions:
+    - Parse the provided JSON data and use it to replace the placeholders in the HTML template.
+    - Extract the Ticker and Company information for the title.
+    - Extract the Timeframe for the timeframe display.
+    - Extract the Technical Analysis summary for the technical analysis section.
+    - Extract Technical indicator results (SMA, RSI, MACD, OBV, ADX) for their dedicated sections.
+    - Extract News data for the news analysis section.
+    - Extract the user-selected weightings for Technical and News/Events. Clearly display these weights in the 'User-Selected Analysis Weights' section.
+    - When generating the overall investment recommendation, weigh the influence of Technical and News/Events analyses according to the user-selected weights. The final recommendation (BUY, HOLD, or SELL) should be determined by a weighted synthesis of these two components, based on their assigned importance. Clearly communicate if the result is driven more by one analysis type due to a higher weighting.
+    - The 'Integrated Analysis' and 'Alignment Assessment' sections should explicitly note which analysis type(s) had the greatest influence on the final recommendation, based on the weights.
+    - The justification text for the recommendation must refer to the weights. For example: “Given the user’s preference to weigh Technical Analysis at 70%, the final recommendation relies primarily on chart patterns and indicator signals, despite mixed news sentiment.”
+    - Return the complete HTML document as your response. Do not include any Markdown or plaintext. Do not leave out any required section, even if some are brief or data is missing.
+    """
+
+    user_message = f"The data to analyse: {json.dumps(gathered_data)}"
+    # OpenAI API call to create a merged summary
+    chat_completion = client.chat.completions.create(
+        model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": user_message
             },
         ]
     )
@@ -1432,21 +2621,78 @@ def merge_news_and_technical_analysis_summary(company_name, news_summary,technic
     response = chat_completion.choices[0].message.content
     return response
 
+def get_start_date(timeframe: str) -> str:
+    today = datetime.today()
+    
+    if timeframe == "3 Months":
+        start_date = today - relativedelta(months=3)
+    elif timeframe == "6 Months":
+        start_date = today - relativedelta(months=6)
+    elif timeframe == "1 Year":
+        start_date = today - relativedelta(years=1)
+    else:
+        raise ValueError("Invalid timeframe")
+
+    return start_date.strftime('%Y-%m-%d')
+
 def generate_company_news_message(company_name, time_period):
     # Define the messages for different time periods 
-    def post_to_webhook(data):
-        webhook_url = "https://hook.eu2.make.com/s4xsnimg9v87rrrckcwo88d9k57186q6"
-        if webhook_url:
+    start_date = get_start_date(time_period)
+    query = f'"{company_name}" (news OR tweet OR earnings OR downgrade OR acquisition) after:{start_date}'
+
     
-            response = requests.post(webhook_url,data)
-            return response
+    params = {
+        "q": query,
+        "api_key": "6bbbb0268f96b1336ac50343fe6ef93a286a74d0f64c3d09fca848c5d62c9cce"
+    }
+
+    print(f"\n🔍 Searching SerpAPI with query: {query}")
+    try:
+        search = GoogleSearch(params)
+        results = search.get_dict()
+        print(results)
+        print("✅ SerpAPI search completed")
+    except Exception as e:
+        print(f"❌ SerpAPI error: {e}")
+        return
+    
+    news = []
+    for item in results.get("organic_results", []):
+        title = item.get("title", "")
+        date = item.get("date", "")
+        link = item.get("link", "")
+        print(f"\n📄 Scraping: {title}")
+        content = extract_diffbot_data(link)
+
+        news.append({
+            "title": title,
+            "date": date,
+            "link": link,
+            "content": content
+        })
+
+        time.sleep(4)
+
+    #Webhook payload
+    payload = {
+        "news": news,
+        "company": company_name,
+        "time_frame": time_period
+    }
+
+    print("\n📤 Sending to Make.com webhook...")
+    webhook_url = "https://hook.eu2.make.com/s4xsnimg9v87rrrckcwo88d9k57186q6"
+    try:
+        response = requests.post(webhook_url, json=payload)
+        if response.status_code == 200:
+            print("✅ Successfully posted to the webhook.")
         else:
-            print("Error")
+            print(f"❌ Webhook error: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"❌ Error posting to webhook: {e}")
 
-    data = {"Ticker": company_name, "Time Frame": time_period}
 
-
-    response = post_to_webhook(data)
+ 
     print(response.text)
 
     time.sleep(65)
@@ -1471,23 +2717,48 @@ def generate_company_news_message(company_name, time_period):
     previous = sh.sheet1.get('A2')
     future = sh.sheet1.get('B2')
           
-    chats = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are an artificial intelligence assistant, and your role is to "
-                    f"present the latest news and updates along with the future news and update for {company_name} in a detailed, organized, and engaging manner."
-            },
-            {
-                "role": "user",
-                "content": f"Present the news and events aswell {company_name} over the past {time_period} retatining all the Dates aswell as the future news and events: Latest News and Updates text {previous}, Future News and Updates text {future}?"
-            },
-        ]
-    )
-    response = chats.choices[0].message.content
-    return response
-     
+    # chats = client.chat.completions.create(
+    #     model="gpt-4o",
+    #     messages=[
+    #         {
+    #             "role": "system",
+    #             "content": "You are an artificial intelligence assistant, and your role is to "
+    #                 f"present the latest news and updates along with the future news and update for {company_name} in a detailed, organized, and engaging manner."
+    #         },
+    #         {
+    #             "role": "user",
+    #             "content": f"Present the news and events aswell {company_name} over the past {time_period} retatining all the Dates aswell as the future news and events: Latest News and Updates text {previous}, Future News and Updates text {future}?"
+    #         },
+    #     ]
+    # )
+    # response = chats.choices[0].message.content
+    return previous
+
+def extract_diffbot_data(link):
+    url = f"https://api.diffbot.com/v3/analyze?url={link}&token=fdbc63a153d0d8da7c0dfb7ccef69945"
+    headers = {"accept": "application/json"}
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        article = data.get("objects", [])[0]  # Take the first object
+
+        title = article.get("title", "N/A")
+        date = article.get("date", "N/A")
+        link = article.get("pageUrl", "N/A")
+        content = article.get("text", "N/A")
+
+        return content
+
+        #print("🔹 Title:", title)
+        #print("📅 Date:", date)
+        #print("🔗 Link:", link)
+        #print("\n📄 Content:\n", content[:1000], "...")  # Print first 1000 chars for brevity
+
+    except Exception as e:
+        print(f"❌ Failed to extract Diffbot data: {e}")
+        print(link)
 
 def bollingerbands(company_name, data_text):
     chat_completion = client.chat.completions.create(
@@ -1680,6 +2951,154 @@ def ADX(company_name,data_text):
     response = chat_completion.choices[0].message.content
     return response
 
+def FUNDAMENTAL_ANALYSIS2(file_name, company_name, file):
+    system_prompt = """ """
+
+    temp_file_path = os.path.join(tempfile.gettempdir(), file)
+
+# Write the contents to the temporary file
+    with open(temp_file_path, 'wb') as temp_file:
+        temp_file.write(file_name.read())
+    
+    message_file = client.files.create(
+    file=open(temp_file_path, "rb"), purpose="assistants"
+    )
+
+    file_id = message_file.id
+
+
+    data = {"File_id": file_id, "Company Name": company_name, "File_name": file}
+
+    webhook_url = "https://hook.eu2.make.com/d68cwl3ujkpqmgrnbpgy9mx3d06vs198"
+    if webhook_url:
+        response = requests.post(webhook_url,data)
+    else: 
+        print("Error")
+
+    time.sleep(65)
+
+    credentials_dict = {
+        "type": type_sa,
+        "project_id": project_id,
+        "private_key_id": private_key_id,
+        "private_key": private_key,
+        "client_email": client_email,
+        "client_id": client_id,
+        "auth_uri": auth_uri,
+        "token_uri": token_uri,
+        "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
+        "client_x509_cert_url": client_x509_cert_url,
+        "universe_domain": universe_domain
+    }
+    credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, ["https://www.googleapis.com/auth/spreadsheets"])
+    gc = gspread.authorize(credentials)
+    sh = gc.open_by_url(google_sheet_url)
+    anaylsis = sh.sheet1.get('C2')
+
+    chat_completion = client.chat.completions.create(
+        model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                "You are an AI model trained to format text for fundamental analysis of financial assets, delivering actionable recommendations. "
+                "You must output only valid, structured HTML, using semantic tags such as <section>, <h2>, <h3>, <ul>, <ol>, <li>, <p>, and <strong> for clarity and readability. "
+                "Do not use Markdown or plain text—output only HTML.\n"
+                "\n"
+                "Format your analysis with these sections and formatting standards:\n"
+                "\n"
+                "<section id='introduction'>\n"
+                "  <h2>Introduction</h2>\n"
+                "  <p>Provide a concise overview of the asset, including its industry context and the main purpose of the analysis.</p>\n"
+                "</section>\n"
+                "\n"
+                "<section id='financial-analysis'>\n"
+                "  <h2>Financial Analysis</h2>\n"
+                "  <h3>Income Statement</h3>\n"
+                "  <ul>\n"
+                "    <li>Summarize trends in <strong>Revenue</strong>, <strong>Cost of Goods Sold</strong>, <strong>Operating Income</strong>, and <strong>Net Income</strong>. Highlight significant changes or growth patterns.</li>\n"
+                "  </ul>\n"
+                "  <h3>Balance Sheet</h3>\n"
+                "  <ul>\n"
+                "    <li>Summarize <strong>Assets</strong>, <strong>Liabilities</strong>, and <strong>Equity</strong>, focusing on liquidity and leverage metrics.</li>\n"
+                "  </ul>\n"
+                "  <h3>Cash Flow Statement</h3>\n"
+                "  <ul>\n"
+                "    <li>Highlight <strong>Cash Flow from Operating</strong>, <strong>Investing</strong>, and <strong>Financing Activities</strong>, emphasizing cash generation and any unusual patterns.</li>\n"
+                "  </ul>\n"
+                "  <h3>Key Ratios and Metrics</h3>\n"
+                "  <ul>\n"
+                "    <li><strong>Profitability Ratios</strong> (e.g., <strong>Gross Margin</strong>, <strong>Return on Assets</strong>)</li>\n"
+                "    <li><strong>Liquidity Ratios</strong> (e.g., <strong>Current Ratio</strong>, <strong>Quick Ratio</strong>)</li>\n"
+                "    <li><strong>Leverage Ratios</strong> (e.g., <strong>Debt-to-Equity Ratio</strong>)</li>\n"
+                "    <li><strong>Valuation Ratios</strong> (e.g., <strong>Price-to-Earnings Ratio (P/E)</strong>, <strong>Price-to-Book Ratio (P/B)</strong>)</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='competitive-market-analysis'>\n"
+                "  <h2>Competitive Positioning and Market Analysis</h2>\n"
+                "  <ul>\n"
+                "    <li>Overview of the asset’s competitive position, market share, and primary competitors.</li>\n"
+                "    <li>Summary of industry trends and a concise <strong>SWOT analysis</strong> (strengths, weaknesses, opportunities, threats).</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='management-governance'>\n"
+                "  <h2>Management and Governance</h2>\n"
+                "  <ul>\n"
+                "    <li>Describe the executive team and board structure, noting experience, past performance, and recent changes.</li>\n"
+                "    <li>Mention recent strategic decisions (e.g., acquisitions, new product lines) that have impacted performance.</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='conclusion-outlook'>\n"
+                "  <h2>Conclusion and Outlook</h2>\n"
+                "  <ul>\n"
+                "    <li>Concise summary of strengths and potential risks based on financial and strategic positioning.</li>\n"
+                "    <li>Outlook considering financial stability, industry conditions, and management’s strategic direction.</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='actionable-recommendations'>\n"
+                "  <h2>Actionable Recommendations</h2>\n"
+                "  <ol>\n"
+                "    <li><strong>Investment Recommendation:</strong> Clearly state Buy, Hold, or Sell, and justify with reference to valuation, market, or management actions.</li>\n"
+                "    <li><strong>Risk Management Suggestions:</strong> Outline risk mitigation strategies (e.g., diversification, stop-loss orders).</li>\n"
+                "    <li><strong>Strategic Suggestions for Management:</strong> If relevant, suggest actions for the company (e.g., explore new markets, reduce debt, optimize costs).</li>\n"
+                "    <li><strong>Performance Monitoring Tips:</strong> Recommend specific metrics or events (e.g., quarterly earnings, regulatory updates) for ongoing evaluation.</li>\n"
+                "  </ol>\n"
+                "</section>\n"
+
+
+                "Style Requirements"
+                "Maintain a professional, objective tone focused on analysis without personal opinions."
+                "Avoid excessive jargon; use clear, direct explanations where needed."
+                "Keep sentences and paragraphs clear and direct for logical flow and easy understanding."
+                "Include all sections and headings as listed, even if a section is brief. Output only valid HTML."
+                    
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"fromat this text {anaylsis}"   
+                ),
+            },
+        ]
+    )
+
+    # Extract and return the AI-generated response
+    response = chat_completion.choices[0].message.content
+
+    deleted_vector_store_file = client.vector_stores.files.delete(
+        vector_store_id="vs_67e6701fdd908191bccc587ac16d2e11",
+        file_id=file_id
+    )
+    
+    print("File successfully deleted from vector store.")
+    return response 
+    
+
 def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
 
     temp_file_path = os.path.join(tempfile.gettempdir(), file)
@@ -1724,47 +3143,85 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
     anaylsis = sh.sheet1.get('C2')
 
     chat_completion = client.chat.completions.create(
-        model="gpt-4o",  # Ensure that you use a model available in your OpenAI subscription
+        model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "You are an AI model trained to format text for fundamental analysis of financial assets, with a focus on providing actionable recommendations. Your role is to structure content in a clear, logical, and standardized manner, organizing financial, operational, and strategic insights and concluding with practical recommendations. Your output should adhere to the following format:"
-                    "Formatting Requirements:"
-                    "Headings and Subheadings: Organize the analysis with concise, descriptive headings (e.g., “Financial Overview,” “Competitive Analysis,” “Investment Recommendations”)."
-                    "Bullet Points and Numbered Lists: Use bullet points for concise lists of information and numbered lists for sequential steps or prioritized actions. This enhances readability, particularly in sections with extensive data."
-                    "Consistent Formatting for Key Metrics:"
-                    "Bold critical financial terms and ratios (e.g., Earnings Per Share (EPS), Price-to-Earnings Ratio (P/E))."
-                    "Structure Guidelines:"
-                    "Introduction: Provide a concise overview of the asset, including industry context and the primary purpose of the analysis."
-                    "Financial Analysis:"
-                    "Income Statement: Summarize trends in revenue, cost of goods sold, operating income, and net income. Point out significant changes or growth patterns."
-                    "Balance Sheet: Summarize assets, liabilities, and equity, focusing on liquidity and leverage metrics."
-                    "Cash Flow Statement: Highlight cash flow from operating, investing, and financing activities, emphasizing cash generation capability and any unusual patterns."
-                    "Key Ratios and Metrics:"
-                    "Profitability Ratios (e.g., Gross Margin, Return on Assets)."
-                    "Liquidity Ratios (e.g., Current Ratio, Quick Ratio)."
-                    "Leverage Ratios (e.g., Debt-to-Equity Ratio)."
-                    "Valuation Ratios (e.g., Price-to-Earnings Ratio, Price-to-Book Ratio)."
-                    "Competitive Positioning and Market Analysis:"
-                    "Provide an overview of the asset’s competitive position, market share, and primary competitors."
-                    "Summarize industry trends and conduct a strengths, weaknesses, opportunities, and threats (SWOT) analysis to give context to the assets strategic position."
-                    "Management and Governance:"
-                    "Describe the executive team and board structure, noting experience, past performance, and any recent changes."
-                    "Mention recent strategic decisions (e.g., acquisitions, new product lines) impacting performance."
-                    "Conclusion and Outlook:"
-                    "Offer a concise summary of the asset's strengths and potential risks based on financial and strategic positioning."
-                    "Provide an outlook considering financial stability, industry conditions, and management’s strategic direction."
-                    "Actionable Recommendations:"
-                    "Investment Recommendation: Clearly state whether to Buy, Hold, or Sell the asset based on the findings. Justify this decision with reference to valuation metrics, market conditions, or management actions."
-                    "Risk Management Suggestions: Outline potential risk mitigation strategies (e.g., sector diversification, stop-loss orders)."
-                    "Strategic Suggestions for Management: If relevant, suggest strategic actions for the company itself, such as exploring new markets, reducing debt, or optimizing operational costs."
-                    "Performance Monitoring Tips: Recommend specific metrics or events (e.g., quarterly earnings, regulatory updates) that investors should watch to evaluate ongoing asset performance."
-                    "Style Requirements:"
-                    "Maintain a professional, objective tone focused on analysis without personal opinions."
-                    "Avoid excessive jargon, opting for straightforward explanations where necessary."
-                    "Keep sentences and paragraphs clear and direct, ensuring the reader can easily follow your logic and conclusions."
-                    "Following these guidelines will ensure that your output is professional, data-driven, and actionable, providing readers with clear insights and practical next steps for informed decision-making."
+                "You are an AI model trained to format text for fundamental analysis of financial assets, delivering actionable recommendations. "
+                "You must output only valid, structured HTML, using semantic tags such as <section>, <h2>, <h3>, <ul>, <ol>, <li>, <p>, and <strong> for clarity and readability. "
+                "Do not use Markdown or plain text—output only HTML.\n"
+                "\n"
+                "Format your analysis with these sections and formatting standards:\n"
+                "\n"
+                "<section id='introduction'>\n"
+                "  <h2>Introduction</h2>\n"
+                "  <p>Provide a concise overview of the asset, including its industry context and the main purpose of the analysis.</p>\n"
+                "</section>\n"
+                "\n"
+                "<section id='financial-analysis'>\n"
+                "  <h2>Financial Analysis</h2>\n"
+                "  <h3>Income Statement</h3>\n"
+                "  <ul>\n"
+                "    <li>Summarize trends in <strong>Revenue</strong>, <strong>Cost of Goods Sold</strong>, <strong>Operating Income</strong>, and <strong>Net Income</strong>. Highlight significant changes or growth patterns.</li>\n"
+                "  </ul>\n"
+                "  <h3>Balance Sheet</h3>\n"
+                "  <ul>\n"
+                "    <li>Summarize <strong>Assets</strong>, <strong>Liabilities</strong>, and <strong>Equity</strong>, focusing on liquidity and leverage metrics.</li>\n"
+                "  </ul>\n"
+                "  <h3>Cash Flow Statement</h3>\n"
+                "  <ul>\n"
+                "    <li>Highlight <strong>Cash Flow from Operating</strong>, <strong>Investing</strong>, and <strong>Financing Activities</strong>, emphasizing cash generation and any unusual patterns.</li>\n"
+                "  </ul>\n"
+                "  <h3>Key Ratios and Metrics</h3>\n"
+                "  <ul>\n"
+                "    <li><strong>Profitability Ratios</strong> (e.g., <strong>Gross Margin</strong>, <strong>Return on Assets</strong>)</li>\n"
+                "    <li><strong>Liquidity Ratios</strong> (e.g., <strong>Current Ratio</strong>, <strong>Quick Ratio</strong>)</li>\n"
+                "    <li><strong>Leverage Ratios</strong> (e.g., <strong>Debt-to-Equity Ratio</strong>)</li>\n"
+                "    <li><strong>Valuation Ratios</strong> (e.g., <strong>Price-to-Earnings Ratio (P/E)</strong>, <strong>Price-to-Book Ratio (P/B)</strong>)</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='competitive-market-analysis'>\n"
+                "  <h2>Competitive Positioning and Market Analysis</h2>\n"
+                "  <ul>\n"
+                "    <li>Overview of the asset’s competitive position, market share, and primary competitors.</li>\n"
+                "    <li>Summary of industry trends and a concise <strong>SWOT analysis</strong> (strengths, weaknesses, opportunities, threats).</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='management-governance'>\n"
+                "  <h2>Management and Governance</h2>\n"
+                "  <ul>\n"
+                "    <li>Describe the executive team and board structure, noting experience, past performance, and recent changes.</li>\n"
+                "    <li>Mention recent strategic decisions (e.g., acquisitions, new product lines) that have impacted performance.</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='conclusion-outlook'>\n"
+                "  <h2>Conclusion and Outlook</h2>\n"
+                "  <ul>\n"
+                "    <li>Concise summary of strengths and potential risks based on financial and strategic positioning.</li>\n"
+                "    <li>Outlook considering financial stability, industry conditions, and management’s strategic direction.</li>\n"
+                "  </ul>\n"
+                "</section>\n"
+                "\n"
+                "<section id='actionable-recommendations'>\n"
+                "  <h2>Actionable Recommendations</h2>\n"
+                "  <ol>\n"
+                "    <li><strong>Investment Recommendation:</strong> Clearly state Buy, Hold, or Sell, and justify with reference to valuation, market, or management actions.</li>\n"
+                "    <li><strong>Risk Management Suggestions:</strong> Outline risk mitigation strategies (e.g., diversification, stop-loss orders).</li>\n"
+                "    <li><strong>Strategic Suggestions for Management:</strong> If relevant, suggest actions for the company (e.g., explore new markets, reduce debt, optimize costs).</li>\n"
+                "    <li><strong>Performance Monitoring Tips:</strong> Recommend specific metrics or events (e.g., quarterly earnings, regulatory updates) for ongoing evaluation.</li>\n"
+                "  </ol>\n"
+                "</section>\n"
+
+
+                "Style Requirements"
+                "Maintain a professional, objective tone focused on analysis without personal opinions."
+                "Avoid excessive jargon; use clear, direct explanations where needed."
+                "Keep sentences and paragraphs clear and direct for logical flow and easy understanding."
+                "Include all sections and headings as listed, even if a section is brief. Output only valid HTML."
                     
                 ),
             },
@@ -1780,7 +3237,7 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
     # Extract and return the AI-generated response
     response = chat_completion.choices[0].message.content
 
-    deleted_vector_store_file = client.beta.vector_stores.files.delete(
+    deleted_vector_store_file = client.vector_stores.files.delete(
         vector_store_id="vs_67e6701fdd908191bccc587ac16d2e11",
         file_id=file_id
     )
@@ -1789,41 +3246,273 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
     return response 
     
    
-
-    
-    
-
-def SUMMARY(company_name,BD,SMA,RSI,MACD,OBV,ADX):
-
+def SUMMARY(company_name, BD, SMA, RSI, MACD, OBV, ADX, weighted_score, weight_choice):
     chat_completion = client.chat.completions.create(
-        model="gpt-4o",
+        model="gpt-4.1",
         messages=[
-            # System message to define the assistant's behavior
             {
                 "role": "system",
-                "content":"You are an AI model designed to assist long-term day traders in analyzing stock market data."
-                    "Your primary task is to interpret and provide a well-rounded conclusion from texts that report on both lagging indicators (MACD, SMA) and leading indicators (ADX, RSI, OBV, Bollinger Bands),"
-                    "to offer clear and easy-to-understand insights on the trend of the stock. When provided with relevant data you will:"
+                "content": (
+                    "You are an AI model designed to assist long-term day traders in analyzing stock market data using a weighted approach."
+                    " Your primary role is to synthesize data from multiple technical indicators—both lagging (MACD, SMA) and leading (ADX, RSI, OBV, Bollinger Bands)—"
+                    " and deliver a single, clear, actionable conclusion about the stock's long-term trend."
+                    "\n\n"
+                    "When analyzing the indicators provided, you must:"
+                    "\n- Extract and interpret the key signals from each indicator summary."
+                    "\n- Weigh the importance of each indicator according to the selected weighting style (for example, 'Long Term' prioritizes slow-moving trends, 'Short Term' prioritizes fast-moving ones, and 'Default' is balanced)."
+                    "\n- Calculate or use the provided *weighted score* to support your conclusion (the weighted score is a summary value reflecting the overall strength and direction of the combined indicators, weighted according to the chosen style)."
+                    "\n- Make your final advice based on this weighted approach, ensuring that the recommendation aligns with the weighted score and selected style."
+                    "\n\n"
+                    "Guidelines for your output:"
+                    "\n- Limit your response to ONE concise paragraph."
+                    "\n- Clearly state the overall trend (e.g., strengthening, weakening, reversal) and the recommended action."
+                    "\n- Bold your suggested position (e.g., **Strong Buy**, **Hold**, **Sell**), and mention whether the weighted score and weighting style support this choice."
+                    "\n- Do NOT output individual indicator details or jargon—focus on the summary and recommendation."
+                    "\n- Ensure your response is simple, actionable, and understandable for a non-trader."
+                )
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Summarize the stock data for {company_name}. "
+                    f"Bollinger Bands: {BD}, "
+                    f"Simple Moving Averages: {SMA}, "
+                    f"Relative Strength Index: {RSI}, "
+                    f"MACD: {MACD}, "
+                    f"OBV: {OBV}, "
+                    f"ADX: {ADX}."
+                    f" Use the weighting style: {weight_choice}. The combined weighted score is: {weighted_score}"
+                )
+            },
+        ]
+    )
 
-                    "\n\n- Read and extract key information from texts or reports that discuss MACD, SMA (lagging indicators), and ADX, RSI, OBV, Bollinger Bands (leading indicators)."
-                    "\n- Synthesize the findings from multiple sources into a cohesive conclusion, drawing connections between the behaviors of lagging and leading indicators."
-                    "\n- Provide a clear and concise conclusion about the stock's overall trend, including whether it is strengthening, weakening, or showing signs of a reversal based on the combined data."
-                    "\n- Offer insights into the likely future direction of the stock by interpreting the interactions between lagging and leading indicators (e.g., MACD crossover with RSI overbought/oversold conditions)."
+    response = chat_completion.choices[0].message.content
+    return response
 
-                    "\n\nEnsure that your conclusions are clear and easy to understand, assume the person reading has no idea about trading, avoiding complex jargon where necessary."
-                    "Your output should balance depth and simplicity, offering actionable insights for traders while being accessible to non-traders."
-                    "Only output the end conclusion no need to output the individual insights from each indicator"
-                    "Limit the output to just 1 paragraph"
-                    "Give Very Simple Advice of what long term position one should take based of the analysis and bold it"
-                    
-                   
+    
+    
+
+def SUMMARY2(gathered_data):
+    today = date.today()
+    formatted = today.strftime('%Y-%m-%d')
+
+
+    system_prompt = """ As an AI assistant dedicated to supporting traders and investors, your task is to produce a structured, detailed technical market analysis in valid HTML format.
+    The user will provide a JSON object containing all the data needed for technical analysis, including:
+    - Ticker: The stock ticker symbol
+    - Company: The company name
+    - Timeframe: The analysis timeframe
+    - Technical Analysis: Summary of technical analysis
+    - Results: Technical indicator results (Summary, SMA, RSI, MACD, OBV, ADX)
+
+    You must parse this JSON data and use it to create a comprehensive technical investment report formatted as HTML.
+
+    **Instructions:**
+    - Parse the provided JSON data and use it to replace the placeholders in the HTML template below.
+    - Extract the Ticker and Company information for the title.
+    - Extract the Timeframe for the timeframe display.
+    - Extract the Technical Analysis summary for the technical analysis section.
+    - Extract Technical indicator results (SMA, RSI, MACD, OBV, ADX) for their dedicated sections.
+    - Generate a clear, actionable recommendation (BUY, HOLD, or SELL) strictly based on technical signals and patterns. Justify the recommendation in clear language, citing which technical factors are most important.
+    - Return the complete HTML document as your response. Do not include any Markdown or plaintext. Do not leave out any required section, even if some are brief or data is missing.
+
+    Your output must use <section>, <h2>, <h3>, <ul>, <li>, <table>, and <p> tags as appropriate. Use <strong> for key points.
+    Follow this professional HTML template exactly, replacing the placeholders with values parsed from the provided JSON:
+
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Technical Investment Analysis</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 0px;
+                background-color: transparent;
+            }
+            .container {
+                background-color: #fff;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                padding: 30px;
+                margin-bottom: 30px;
+            }
+            h1 {
+                color: #2c3e50;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+                margin-top: 0;
+            }
+            h2 {
+                color: #2c3e50;
+                border-left: 5px solid #3498db;
+                padding-left: 15px;
+                margin-top: 30px;
+                background-color: #f8f9fa;
+                padding: 10px 15px;
+                border-radius: 0 5px 5px 0;
+            }
+            h3 {
+                color: #2c3e50;
+                margin-top: 20px;
+                border-bottom: 1px dashed #ddd;
+                padding-bottom: 5px;
+            }
+            .section {
+                margin-bottom: 30px;
+                padding: 20px;
+                background-color: #f9f9f9;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            .recommendation {
+                font-weight: bold;
+                font-size: 1.1em;
+                padding: 15px;
+                margin: 15px 0;
+                border-radius: 5px;
+                text-align: center;
+            }
+            .buy {
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+            .hold {
+                background-color: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeeba;
+            }
+            .sell {
+                background-color: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }
+            .indicator {
+                margin-bottom: 20px;
+                padding: 15px;
+                border-radius: 5px;
+                background-color: #f8f9fa;
+                border-left: 4px solid #3498db;
+            }
+            .indicator h4 {
+                margin-top: 0;
+                color: #2980b9;
+            }
+            .summary-box {
+                background-color: #e8f4fd;
+                border-left: 4px solid #3498db;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 0 5px 5px 0;
+            }
+            .timeframe {
+                font-weight: bold;
+                color: #2c3e50;
+                background-color: #e8f4fd;
+                padding: 5px 10px;
+                border-radius: 3px;
+                display: inline-block;
+                margin-bottom: 15px;
+            }
+            .footnote {
+                font-size: 0.9em;
+                font-style: italic;
+                color: #6c757d;
+                margin-top: 30px;
+                padding-top: 15px;
+                border-top: 1px solid #dee2e6;
+            }
+            .highlight {
+                background-color: #ffeaa7;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Technical Investment Analysis: [TICKER_PLACEHOLDER] - [COMPANY_PLACEHOLDER]</h1>
+            <div class="timeframe">Analysis Timeframe: [TIMEFRAME_PLACEHOLDER]</div>
+            
+            <section class="section">
+                <h2>Executive Summary</h2>
+                <div class="summary-box">
+                    <p>[SUMMARY_PLACEHOLDER]</p>
+                </div>
+                <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
+                    RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Technical Analysis</h2>
+                <div id="technical-analysis">
+                    [TECHNICAL_ANALYSIS_PLACEHOLDER]
+                </div>
+                <h3>Technical Indicators</h3>
+                <div class="indicator">
+                    <h4>SMA (Simple Moving Average)</h4>
+                    <p>[SMA_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                <div class="indicator">
+                    <h4>RSI (Relative Strength Index)</h4>
+                    <p>[RSI_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                <div class="indicator">
+                    <h4>MACD (Moving Average Convergence Divergence)</h4>
+                    <p>[MACD_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                <div class="indicator">
+                    <h4>OBV (On-Balance Volume)</h4>
+                    <p>[OBV_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+                <div class="indicator">
+                    <h4>ADX (Average Directional Index)</h4>
+                    <p>[ADX_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Integrated Analysis & Investment Recommendation</h2>
+                <p>[INTEGRATED_ANALYSIS_PLACEHOLDER]</p>
+                <div class="summary-box">
+                    <p><strong>Recommendation:</strong> [DETAILED_RECOMMENDATION_PLACEHOLDER]</p>
+                    <p><strong>Entry Points:</strong> [ENTRY_POINTS_PLACEHOLDER]</p>
+                    <p><strong>Exit Strategy:</strong> [EXIT_STRATEGY_PLACEHOLDER]</p>
+                    <p><strong>Risk Management:</strong> [RISK_MANAGEMENT_PLACEHOLDER]</p>
+                </div>
+            </section>
+
+            <div class="footnote"> """ f"""
+                <p>This investment analysis was generated on {formatted}, and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+        """
+
+    user_message = f"The data to analyse: {json.dumps(gathered_data)}"
+    chat_completion = client.chat.completions.create(
+            model="gpt-4.1",
+            messages=[
+                # System message to define the assistant's behavior
+            {
+                    "role": "system",
+                    "content":  system_prompt
                                     
             },
             # User message with a prompt requesting stock analysis for a specific company
             {
                 "role": "user",
-                "content": f"Please summarise the stock data for {company_name}, here is the text for Bollinger bands: {BD}, Simple Moving Averages: {SMA}, Relative Strength Index: {RSI}, MACD: {MACD}, OBV: {OBV}, ADX: {ADX}"
-                
+                "content": user_message
+                    
             },
         ]
     )
@@ -1834,39 +3523,41 @@ def SUMMARY(company_name,BD,SMA,RSI,MACD,OBV,ADX):
 
 def format_news(txt_summary):
     chat_completion = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            # System message to define the assistant's behavior
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert in formatting text for clarity and professional presentation. "
-                    "Your task is to prepare a well-organized, easy-to-read document summarizing recent events in font size 12 with attention to layout consistency. "
-                    "Follow these instructions:"
-                    "\n- Text Formatting: Use font size 12 consistently across all text for readability."
-                    "\n- Begin each entry with the Date and Event Title in bold to highlight key information upfront."
-                    "\n- Event Description Structure: Organize each event entry in a structured format:"
-                    "\n  - Date: Bolded, immediately followed by the Event Title in bold on the same line."
-                    "\n  - Overview: Provide a concise summary of the event, outlining its main points."
-                    "\n  - Impact: Discuss potential implications or significance, especially regarding the market."
-                    "\nExample Entry Format:"
-                    "\n[Date: October 15, 2024] [Event Title: Q3 Earnings Release]"
-                    "\nOverview: The company reported a strong year-over-year increase in Q3 revenue, primarily due to heightened demand in its core market."
-                    "\nImpact: Analysts predict this trend may lead to a stock price increase, as revenue growth outpaces industry averages."
-                    "\nSource: Company press release, MarketWatch article."
-                )
-                
-            },
-            # User message with a prompt requesting stock analysis for a specific company
-            {
-                "role": "user",
-                "content": f"text to format {txt_summary}"
-                
-            },
-        ],
-        
+    model="gpt-4.1",
+    messages=[
+        {
+            "role": "system",
+            "content": (
+                "You are an AI model designed to convert recent event data into a clean, professionally formatted HTML summary.\n\n"
+                "Your task is to transform each event into a structured HTML entry that is easy to read and suitable for use in reports, dashboards, or investor updates.\n\n"
+                "The user will provide a list of events in structured text or JSON format. Each event contains:\n"
+                "- Date\n"
+                "- Title\n"
+                "- Overview\n"
+                "- Impact\n"
+                "- Source\n\n"
+                "You must format this information using the HTML structure below:\n\n"
+                "<div style=\"font-size:12pt; margin-bottom:20px; font-family:Arial, sans-serif;\">\n"
+                "  <strong>Date: [DATE] — Event: [TITLE]</strong><br/>\n"
+                "  <p><strong>Overview:</strong> [OVERVIEW]</p>\n"
+                "  <p><strong>Impact:</strong> [IMPACT]</p>\n"
+                "  <p><strong>Source:</strong> [SOURCE]</p>\n"
+                "</div>\n\n"
+                "Formatting Guidelines:\n"
+                "- Use 12pt font consistently.\n"
+                "- Separate sections with <p> tags.\n"
+                "- Replace all [PLACEHOLDER] entries with actual event content.\n"
+                "- Output valid, clean HTML only — no extra narrative, no markdown.\n\n"
+                "Return one complete <div> block per event."
+            )
+        },
+        {
+            "role": "user",
+            "content": f"text to format {txt_summary}"
+        }
+    ]
+)
 
-    )
 
 # Output the AI's response
     response = chat_completion.choices[0].message.content
@@ -1874,17 +3565,55 @@ def format_news(txt_summary):
 
 
 
-def calculate_technical_indicators(data,ticker):
+def calculate_technical_indicators(data, ticker, weight_choice=None):
     """
-    Calculate various technical indicators and prepare them for AI analysis.
+    Calculate various technical indicators, prepare them for AI analysis,
+    and compute a weighted technical score.
 
     Args:
-        data (pd.DataFrame): The input financial data with columns ['Open', 'High', 'Low', 'Close', 'Volume'].
+        data (pd.DataFrame): The input financial data.
         ticker (str): The stock ticker.
+        weights (dict): Optional dict of weights for each indicator.
 
     Returns:
-        Dict[str, str]: A dictionary containing analysis results for each technical indicator.
+        Tuple: (results dict, recent_data, availability, scores, weighted_score)
     """
+    short_term_weights = {
+    "sma": 0.1,
+    "rsi": 0.3,
+    "macd": 0.3,
+    "obv": 0.1,
+    "adx": 0.1,
+    "bbands": 0.1
+    }
+    long_term_weights = {
+        "sma": 0.4,
+        "rsi": 0.1,
+        "macd": 0.15,
+        "obv": 0.15,
+        "adx": 0.2,
+        "bbands": 0.0
+    }
+
+    weights = {
+            "sma": 0.2,
+            "rsi": 0.2,
+            "macd": 0.2,
+            "obv": 0.2,
+            "adx": 0.2,
+            "bbands": 0.0  # Set to 0 if not using
+        }
+
+# Choose the right weights
+    if weight_choice == "Short Term":
+        weights = short_term_weights
+    if weight_choice == "Long Term":
+        weights = long_term_weights
+    if weight_choice == "Default":
+        weights = weights
+
+    # --- Default Weights if not provided ---
+
     # Initialize availability flags
     sma_available = False
     rsi_available = False
@@ -1893,19 +3622,19 @@ def calculate_technical_indicators(data,ticker):
     adx_available = False
     bbands_available = False
 
-    # Calculate SMA
+    # --- Calculate SMA ---
     if 'Close' in data.columns:
         data['SMA_20'] = ta.sma(data['Close'], length=20)
         data['SMA_50'] = ta.sma(data['Close'], length=50)
         data['SMA_200'] = ta.sma(data['Close'], length=200)
         sma_available = data[['SMA_20', 'SMA_50', 'SMA_200']].notna().any().any()
 
-    # Calculate RSI
+    # --- Calculate RSI ---
     if 'Close' in data.columns:
         data['RSI'] = ta.rsi(data['Close'], length=14)
         rsi_available = 'RSI' in data.columns and data['RSI'].notna().any()
 
-    # Calculate MACD
+    # --- Calculate MACD ---
     macd = ta.macd(data['Close'])
     if macd is not None and all(col in macd.columns for col in ['MACD_12_26_9', 'MACDs_12_26_9', 'MACDh_12_26_9']):
         data['MACD'] = macd['MACD_12_26_9']
@@ -1913,20 +3642,18 @@ def calculate_technical_indicators(data,ticker):
         data['MACD_hist'] = macd['MACDh_12_26_9']
         macd_available = True
 
-    print(data)
-
-    # Calculate OBV
+    # --- Calculate OBV ---
     if 'Close' in data.columns and 'Volume' in data.columns:
         data['OBV'] = ta.obv(data['Close'], data['Volume'])
         obv_available = 'OBV' in data.columns and data['OBV'].notna().any()
 
-    # Calculate ADX
+    # --- Calculate ADX ---
     adx = ta.adx(data['High'], data['Low'], data['Close'])
     if adx is not None and 'ADX_14' in adx.columns:
         data['ADX'] = adx['ADX_14']
         adx_available = True
 
-    # Calculate Bollinger Bands
+    # --- Calculate Bollinger Bands ---
     bbands = ta.bbands(data['Close'], length=20, std=2)
     if bbands is not None and all(col in bbands.columns for col in ['BBU_20_2.0', 'BBM_20_2.0', 'BBL_20_2.0']):
         data['upper_band'] = bbands['BBU_20_2.0']
@@ -1934,7 +3661,7 @@ def calculate_technical_indicators(data,ticker):
         data['lower_band'] = bbands['BBL_20_2.0']
         bbands_available = True
 
-    # Resample data
+    # --- Resample data weekly ---
     data = data.resample('W').agg({
         'Open': 'first',
         'High': 'max',
@@ -1955,8 +3682,10 @@ def calculate_technical_indicators(data,ticker):
         'lower_band': 'last'
     })
 
-    # Prepare data for analysis
+    # --- Prepare data for analysis ---
     recent_data = data
+
+    # --- Run your original analysis functions (these return text) ---
     results = {
         "bd_result": bollingerbands(ticker, recent_data[["Open", "High", "Low", "Close", "Volume", "upper_band", "middle_band", "lower_band"]].to_markdown()),
         "sma_result": SMA(ticker, recent_data[["Open", "High", "Low", "Close", "SMA_20", "SMA_50", "SMA_200"]].to_markdown()) if sma_available else "SMA analysis not available.",
@@ -1975,7 +3704,29 @@ def calculate_technical_indicators(data,ticker):
         "bbands_available": bbands_available
     }
 
-    return results, recent_data, availability
+    # --- SCORING SECTION (replace these with your real logic!) ---
+    last = recent_data.iloc[-1]  # Last row (most recent week)
+    scores = {}
+
+    # Simple scoring logic (customize as needed)
+    # Bullish (+1), Bearish (-1), Neutral (0)
+    scores['sma'] = 1 if sma_available and last['Close'] > last['SMA_20'] else -1 if sma_available else 0
+    scores['rsi'] = 1 if rsi_available and last['RSI'] > 55 else -1 if rsi_available and last['RSI'] < 45 else 0
+    scores['macd'] = 1 if macd_available and last['MACD'] > last['MACD_signal'] else -1 if macd_available else 0
+    scores['obv'] = 1 if obv_available and last['OBV'] > 0 else -1 if obv_available and last['OBV'] < 0 else 0
+    scores['adx'] = 1 if adx_available and last['ADX'] > 20 else -1 if adx_available and last['ADX'] < 20 else 0
+    scores['bbands'] = 1 if bbands_available and last['Close'] > last['middle_band'] else -1 if bbands_available else 0
+
+    # --- Weighted score ---
+    total_weight = sum([weights.get(k, 0) for k in scores if availability.get(f"{k}_available", False)])
+    weighted_score = sum(
+        scores[k] * weights.get(k, 0)
+        for k in scores if availability.get(f"{k}_available", False)
+    ) / total_weight if total_weight > 0 else 0
+
+    # --- RETURN everything ---
+    return results, recent_data, availability, scores, weighted_score
+
 
 
 def update_progress(progress_bar, stage, progress, message):
@@ -2026,4 +3777,10 @@ def plot_adx(data):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=data.index, y=data['ADX'], mode='lines', name='ADX', line=dict(color='orange')))
     return fig
-    
+
+
+def main():
+    stock_page()
+
+if __name__ == "__main__":
+    main()
