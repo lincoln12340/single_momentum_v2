@@ -20,6 +20,7 @@ from datetime import datetime, timedelta,date
 import pandas as pd
 from serpapi import GoogleSearch
 from dateutil.relativedelta import relativedelta
+import pdfplumber
 
 
 #load_dotenv()
@@ -755,15 +756,14 @@ def stock_page():
                     update_progress(progress_bar, 60, 60, "Starting Fundamental Analysis...")
                     fa_summary = FUNDAMENTAL_ANALYSIS(file_content, company, file_name)
                     update_progress(progress_bar, 80, 80, "Finalising Analysis...")
-                    fa_txt_summary = fa_summary_and_news_summary(fa_summary,txt_ovr)
-                    update_progress(progress_bar, 100, 100, "Analysis Complete...")
+                    #fa_txt_summary = fa_summary_and_news_summary(fa_summary,txt_ovr)
+                    #update_progress(progress_bar, 100, 100, "Analysis Complete...")
                 
                 
                 #text_ovr_t = convert_to_raw_text(fa_txt_summary)
                 #st.write(text_ovr_t)
 
-                text_ovr = clean_html_response(fa_txt_summary)
-                st.components.v1.html(text_ovr, height=700, scrolling=True)
+               
 
                 st.session_state["run_analysis_complete"] = True
 
@@ -771,22 +771,16 @@ def stock_page():
                     "Ticker": ticker,
                     "Company": company,
                     "Timeframe": timeframe,
-                    "Technical Analysis": technical_analysis,
                     "News and Events Overall": txt_ovr,
-                    "News and Events Summary": txt_summary,
-                    "Fundamental Analysis": fundamental_analysis,
-                    "Results": {
-                        "Summary": summary if 'summary' in locals() else "",
-                        "Fundamental Analysis & News": fa_txt_summary if 'fa_txt_summary' in locals() else "",
-                        "SMA Results": sma_result if 'sma_result' in locals() else "",
-                        "RSI Results": rsi_result if 'rsi_result' in locals() else "",
-                        "MACD Results": macd_result if 'macd_result' in locals() else "",
-                        "OBV Results": obv_result if 'obv_result' in locals() else "",
-                        "ADX Results": adx_result if 'adx_result' in locals() else "",
-                        "Fundamental Analysis": fa_summary if 'fa_summary' in locals() else ""
-
-                    }
+                    "Fundamental Analysis": fa_summary
                 }
+
+                fa_txt_summary = fa_summary_and_news_summary(gathered_data)
+                update_progress(progress_bar, 100, 100, "Analysis Complete...")
+
+                text_ovr = clean_html_response(fa_txt_summary)
+                st.components.v1.html(text_ovr, height=700, scrolling=True)
+
                 st.session_state["gathered_data"] = gathered_data
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
                 st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
@@ -890,18 +884,65 @@ def generate_investment_analysis(gathered_data):
     - Fundamental Analysis: Summary of fundamental analysis
     - News data: News summaries for the company and related companies/sectors
     - Results: Technical indicator results (Summary, SMA, RSI, MACD, OBV, ADX)
-    - UserSelectedWeights: An object containing the user-selected weights for Technical, Fundamental, and News analyses, with each value between 0 and 1 (all weights sum to 1). Example:
-    {
-        "Technical Analysis": 0.4,
-        "Fundamental Analysis": 0.4,
-        "News and Events": 0.2
-    }
+    - UserSelectedWeights: An object containing the user-selected weights for Technical, Fundamental, and News analyses, with each value between 0 and 1 (all weights sum to 1).
 
-    You must parse this JSON data and use it to create a comprehensive investment report formatted as HTML.
+    You must parse this JSON data and use it to create a comprehensive investment report formatted STRICTLY as an HTML document.
 
-    Follow this HTML template exactly, replacing the placeholder content with information derived from the JSON data:
+    **Formatting Requirements:**
+    - DO NOT USE MARKDOWN OR PLAIN TEXT HEADINGS UNDER ANY CIRCUMSTANCES.
+    - DO NOT use Markdown syntax such as #, ##, or bullet points. 
+    - DO NOT use Markdown lists. 
+    - DO NOT output any content outside of the provided HTML template.
+    - RESPOND ONLY IN VALID HTML using the provided template, filling all placeholders with the relevant data.
+    - **NEWS SOURCES:** In the News and Events Analysis section, for every news item or event, you MUST HYPERLINK the source by making the news title or summary a clickable <a href="URL">link</a>. If multiple sources are mentioned, each must be separately hyperlinked. The same applies to news summaries in any section—always hyperlink sources.
 
-    ```html
+    **Key instructions for the Financial Metrics section:**
+    - For the 'Key Financial Metrics' section, you MUST ALWAYS display the following metrics as individual metric-cards within a flexbox layout:
+        - Revenues
+        - Sales
+        - Income (Net Income or Earnings)
+        - Gross Margins
+        - Liabilities
+        - Cash Flow (Operating Cash Flow)
+        - Debt
+        - Assets
+    - If any value is missing, display "N/A".
+    - Each metric must appear as a “metric-card” styled <div> (see CSS below) inside a parent <div class="metrics">, with <div class="metric-title"> for the name and <div class="metric-value"> for the value.
+    - You may add additional metric-cards below the required ones if there are more available.
+
+    **STRICT INSTRUCTION:**  
+    Your response MUST BE A SINGLE VALID HTML DOCUMENT that fully follows the template below. DO NOT output anything in Markdown or plain text before, after, or within the template.
+
+    Parse the provided JSON data and use it to replace the placeholders in the HTML template. Make sure to:
+
+        1. Extract the Ticker and Company information for the title.
+        2. Extract the Timeframe for the timeframe display.
+        3. Extract the Technical Analysis summary for the technical analysis section.
+        4. Extract Technical indicator results (SMA, RSI, MACD, OBV, ADX) for their dedicated sections.
+        5. Extract the Fundamental Analysis for the fundamental analysis section.
+        6. Extract News data for the news analysis section.
+        - **CRITICAL:** For every news summary or event, render the news item as a clickable HTML link (using the actual source URL as <a href="URL">[headline or summary]</a>). Never show raw URLs; always use hyperlinks.
+        7. Extract the user-selected weightings for each analysis type (e.g., Fundamental, Technical, News/Events). Clearly display these weights in the "User-Selected Analysis Weights" section under Investment Recommendation.
+        8. When generating the overall investment recommendation, weigh the influence of each analysis type (Fundamental, Technical, News/Events) according to the user-selected weights. The final recommendation (BUY, HOLD, or SELL) should be determined by a weighted synthesis of these three components, based on their assigned importance. Clearly communicate if the result is driven more by one analysis type due to a higher weighting.
+
+    **Recommendation Logic:**
+
+    When generating the “Recommendation” (Buy, Hold, Sell), synthesize and weigh the findings from the Technical Analysis, Fundamental Analysis, and News/Events Analysis according to the provided weights.
+
+    If one weighting is clearly dominant (e.g., Fundamental Analysis = 0.7), emphasize in the summary and recommendation that the final decision is mainly driven by that analysis type.
+
+    The “Integrated Analysis” and “Alignment Assessment” sections should explicitly note which analysis types had the greatest influence on the final recommendation, based on the weights.
+
+    **Justification:**
+
+    The justification text for the recommendation must refer to the weights. For example:
+    “Given the user’s preference to weigh Fundamental Analysis at 60%, the final recommendation relies primarily on the company’s strong balance sheet and valuation ratios, despite short-term volatility in technical indicators.”
+
+    **IMPORTANT:**  
+    - Return the complete HTML document as your response.  
+    - Do not output any Markdown, plain text, or explanation before or after the HTML.  
+    - Only output valid HTML using the supplied template and placeholder replacements.
+
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -1111,7 +1152,39 @@ def generate_investment_analysis(gathered_data):
                 
                 <h3>Key Financial Metrics</h3>
                 <div class="metrics">
-                    [FINANCIAL_METRICS_PLACEHOLDER]
+                    <div class="metric-card">
+                        <div class="metric-title">Revenues</div>
+                        <div class="metric-value">[REVENUES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Sales</div>
+                        <div class="metric-value">[SALES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Income</div>
+                        <div class="metric-value">[INCOME_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Gross Margins</div>
+                        <div class="metric-value">[GROSS_MARGINS_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Liabilities</div>
+                        <div class="metric-value">[LIABILITIES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Cash Flow</div>
+                        <div class="metric-value">[CASH_FLOW_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Debt</div>
+                        <div class="metric-value">[DEBT_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Assets</div>
+                        <div class="metric-value">[ASSETS_PLACEHOLDER]</div>
+                    </div>
+                    [OPTIONAL_ADDITIONAL_METRIC_CARDS_PLACEHOLDER]
                 </div>
                 
                 <h3>Valuation Analysis</h3>
@@ -1240,46 +1313,15 @@ def generate_investment_analysis(gathered_data):
                 </div>
             </div>
             
-            <div class="footnote"> """ f"""
-                <p>This investment analysis was generated on {formatted} , and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            <div class="footnote">""" f"""
+                <p>This investment analysis was generated on {formatted}, and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
             </div>
         </div>
     </body>
     </html>
-    ```
-    Parse the provided JSON data and use it to replace the placeholders in the HTML template. Make sure to:
-
-        1. Extract the Ticker and Company information for the title.
-
-        2. Extract the Timeframe for the timeframe display.
-
-        3. Extract the Technical Analysis summary for the technical analysis section.
-
-        4. Extract Technical indicator results (SMA, RSI, MACD, OBV, ADX) for their dedicated sections.
-
-        5. Extract the Fundamental Analysis for the fundamental analysis section.
-
-        6. Extract News data for the news analysis section.
-
-        7. Extract the user-selected weightings for each analysis type (e.g., Fundamental, Technical, News/Events). Clearly display these weights in the "User-Selected Analysis Weights" section under Investment Recommendation.
-
-        8. When generating the overall investment recommendation, weigh the influence of each analysis type (Fundamental, Technical, News/Events) according to the user-selected weights. The final recommendation (BUY, HOLD, or SELL) should be determined by a weighted synthesis of these three components, based on their assigned importance. Clearly communicate if the result is driven more by one analysis type due to a higher weighting.
-
-        Recommendation Logic:
-
-    When generating the “Recommendation” (Buy, Hold, Sell), synthesize and weigh the findings from the Technical Analysis, Fundamental Analysis, and News/Events Analysis according to the provided weights.
-
-    If one weighting is clearly dominant (e.g., Fundamental Analysis = 0.7), emphasize in the summary and recommendation that the final decision is mainly driven by that analysis type.
-
-    The “Integrated Analysis” and “Alignment Assessment” sections should explicitly note which analysis types had the greatest influence on the final recommendation, based on the weights.
-
-    Justification:
-
-    The justification text for the recommendation must refer to the weights. For example:
-    “Given the user’s preference to weigh Fundamental Analysis at 60%, the final recommendation relies primarily on the company’s strong balance sheet and valuation ratios, despite short-term volatility in technical indicators.”
-
-    Return the complete HTML document as your response.
     """
+
+
     
     # Simply pass the entire gathered_data dictionary as JSON
     user_message = f"The data to analyse: {json.dumps(gathered_data)}"
@@ -1303,12 +1345,13 @@ def generate_investment_analysis(gathered_data):
             st.error(f"Error generating analysis: {e}")
             return None
 
-def fa_summary_and_news_summary(fa_summary, txt_summary):
+def fa_summary_and_news_summary(gathered_data):
     today = date.today()
     formatted = today.strftime('%Y-%m-%d')
 
 
-    system_prompt = """ As an AI assistant dedicated to supporting traders and investors, your task is to produce a structured, detailed market analysis in valid HTML format. Focus exclusively on synthesizing recent news/events and fundamental analysis related to the selected stock. Do not include any technical analysis or technical indicator results.
+    system_prompt = """
+    As an AI assistant dedicated to supporting traders and investors, your task is to produce a structured, detailed market analysis in valid HTML format. Focus exclusively on synthesizing recent news/events and fundamental analysis related to the selected stock. Do not include any technical analysis or technical indicator results.
 
     The user will provide a JSON object containing all the data needed for analysis, including:
     - Ticker: The stock ticker symbol
@@ -1327,6 +1370,7 @@ def fa_summary_and_news_summary(fa_summary, txt_summary):
     - Extract the FundamentalAnalysis summary for the Fundamental Analysis section.
     - Extract the NewsData for the News and Events Analysis section.
     - Extract the SignificantEvents list for the 'Recent Significant Events' section.
+    - **Always include a 'Key Financial Metrics' section within the Fundamental Analysis. Present the following metrics as responsive metric-cards within a flex container, each with its own card, even if the value is "N/A": Revenues, Sales, Income (Net Income or Earnings), Gross Margins, Liabilities, Cash Flow (Operating), Debt, Assets. Additional metrics can be added as extra cards.**
     - Generate a summary and investment recommendation (BUY, HOLD, or SELL) based on the synthesis of fundamental analysis and news/events. Justify your reasoning by referring to the financial fundamentals and the reported news/events.
     - The 'Integrated Analysis' section should synthesize all insights from both fundamental and news/event signals into a final outlook and recommendation.
     - Return the complete HTML document as your response. Do not include any Markdown or plaintext. Do not leave out any required section, even if some are brief or data is missing.
@@ -1386,11 +1430,28 @@ def fa_summary_and_news_summary(fa_summary, txt_summary):
                 border-radius: 5px;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.05);
             }
-            ul, ol {
-                padding-left: 25px;
+            .metrics {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 15px;
+                margin: 20px 0;
             }
-            ul li, ol li {
-                margin-bottom: 8px;
+            .metric-card {
+                background-color: #f0f7ff;
+                border-radius: 5px;
+                padding: 15px;
+                flex: 1;
+                min-width: 200px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            .metric-title {
+                font-weight: bold;
+                color: #2980b9;
+                margin-bottom: 5px;
+            }
+            .metric-value {
+                font-size: 1.2em;
+                font-weight: bold;
             }
             .recommendation {
                 font-weight: bold;
@@ -1470,6 +1531,42 @@ def fa_summary_and_news_summary(fa_summary, txt_summary):
                 <div id="fundamental-analysis">
                     [FUNDAMENTAL_ANALYSIS_PLACEHOLDER]
                 </div>
+                <h3>Key Financial Metrics</h3>
+                <div class="metrics">
+                    <div class="metric-card">
+                        <div class="metric-title">Revenues</div>
+                        <div class="metric-value">[REVENUES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Sales</div>
+                        <div class="metric-value">[SALES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Income</div>
+                        <div class="metric-value">[INCOME_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Gross Margins</div>
+                        <div class="metric-value">[GROSS_MARGINS_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Liabilities</div>
+                        <div class="metric-value">[LIABILITIES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Cash Flow</div>
+                        <div class="metric-value">[CASH_FLOW_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Debt</div>
+                        <div class="metric-value">[DEBT_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Assets</div>
+                        <div class="metric-value">[ASSETS_PLACEHOLDER]</div>
+                    </div>
+                    [OPTIONAL_ADDITIONAL_METRIC_CARDS_PLACEHOLDER]
+                </div>
             </section>
             
             <section class="section">
@@ -1501,76 +1598,39 @@ def fa_summary_and_news_summary(fa_summary, txt_summary):
         </div>
     </body>
     </html>
+
+    Recommendation Logic:
+
+    When generating the “Recommendation” (Buy, Hold, Sell), synthesize and weigh the findings from the Fundamental Analysis, and News/Events Analysis according to the provided weights.
+
+    - **Key Financial Metrics Requirement:**  
+    In the 'Fundamental Analysis' section, always display the following metrics as individual metric-cards in a flex container: Revenues, Sales, Income, Gross Margins, Liabilities, Cash Flow, Debt, Assets (with "N/A" if missing). Additional metrics may be added as more cards.
+
+    If one weighting is clearly dominant (e.g., Fundamental Analysis = 0.7), emphasize in the summary and recommendation that the final decision is mainly driven by that analysis type.
+
+    The “Integrated Analysis” and “Alignment Assessment” sections should explicitly note which analysis types had the greatest influence on the final recommendation, based on the weights.
+
+    Justification:
+
+    The justification text for the recommendation must refer to the weights. For example:
+    “Given the user’s preference to weigh Fundamental Analysis at 60%, the final recommendation relies primarily on the company’s strong balance sheet and valuation ratios, despite any recent negative news events.”
+
+    Return the complete HTML document as your response.
     """
+
+    user_message = f"The data to analyse: {json.dumps(gathered_data)}"
+
            
     chat_completion = client.chat.completions.create(
         model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
         messages=[
             {
                 "role": "system",
-                "content": (
-                "You are an AI model trained to create a comprehensive investment report by integrating recent news/events with fundamental analysis. "
-                "Your output must be structured as valid HTML using headings (<section>, <h2>, <h3>), <ul> for bullet points, <ol> for numbered lists, and <strong> for key metrics and event names. Do not use Markdown or plain text formatting—output HTML only.\n"
-                "\n"
-                "Follow this structure exactly:\n"
-                "<section id='introduction'>\n"
-                "  <h2>Introduction</h2>\n"
-                "  <ul>\n"
-                "    <li>Briefly summarize the asset, its industry context, and the relevance of both fundamental analysis and recent events.</li>\n"
-                "    <li>State the objective: to integrate fundamental performance with recent news for a complete perspective on the asset's investment potential.</li>\n"
-                "  </ul>\n"
-                "</section>\n"
-                "\n"
-                "<section id='fundamental-analysis-summary'>\n"
-                "  <h2>Fundamental Analysis Summary</h2>\n"
-                "  <ul>\n"
-                "    <li><strong>Financial Performance:</strong> Key financial metrics (e.g., <strong>Revenue Growth</strong>, <strong>Net Income</strong>) reflecting stability.</li>\n"
-                "    <li><strong>Valuation Metrics:</strong> Include <strong>P/E</strong>, <strong>P/B</strong>, <strong>Dividend Yield</strong>, with industry comparisons.</li>\n"
-                "    <li><strong>Market Position and Competitive Standing:</strong> Outline market position, strengths, and a brief <strong>SWOT</strong> summary.</li>\n"
-                "    <li><strong>Key Takeaways:</strong> Summarize overall financial health and growth outlook.</li>\n"
-                "  </ul>\n"
-                "</section>\n"
-                "\n"
-                "<section id='recent-news-events'>\n"
-                "  <h2>Recent News and Events Summary</h2>\n"
-                "  <ul>\n"
-                "    <li><strong>Recent Developments:</strong> Major events impacting the asset (e.g., <strong>Product Launch</strong>, <strong>Regulatory Change</strong>).</li>\n"
-                "    <li><strong>Market Sentiment and Impact:</strong> Describe how each event affected sentiment, positively or negatively.</li>\n"
-                "    <li><strong>Macro and Industry-Level News:</strong> Broader economic or industry developments relevant to the asset.</li>\n"
-                "    <li><strong>Key Takeaways:</strong> Highlight the potential influence of recent events on the asset’s outlook.</li>\n"
-                "  </ul>\n"
-                "</section>\n"
-                "\n"
-                "<section id='integrated-investment-insights'>\n"
-                "  <h2>Integrated Investment Insights</h2>\n"
-                "  <ul>\n"
-                "    <li><strong>Alignment of Fundamentals with Recent Events:</strong> Describe how recent events support or challenge the fundamental outlook.</li>\n"
-                "    <li><strong>Market Sentiment vs. Intrinsic Value:</strong> Evaluate how current sentiment aligns with intrinsic value.</li>\n"
-                "    <li><strong>Risk Factors:</strong> Identify any new or heightened risks introduced by recent events.</li>\n"
-                "  </ul>\n"
-                "</section>\n"
-                "\n"
-                "<section id='actionable-recommendations'>\n"
-                "  <h2>Actionable Recommendations</h2>\n"
-                "  <ol>\n"
-                "    <li><strong>Investment Decision:</strong> Provide a <strong>Buy</strong>, <strong>Hold</strong>, or <strong>Sell</strong> recommendation, integrating both analysis perspectives.</li>\n"
-                "    <li><strong>Entry and Exit Points:</strong> Suggest entry/exit levels based on news and valuation.</li>\n"
-                "    <li><strong>Risk Management and Monitoring:</strong> Recommend risk management strategies and future events/updates to watch.</li>\n"
-                "  </ol>\n"
-                "</section>\n"
-                
-                "Style-requirements"
-                "Maintain a professional, data-driven tone; avoid personal opinions."
-                "Minimize jargon and briefly clarify terms as needed."
-                "Keep sentences and paragraphs concise for logical flow and readability."
-                "Always include all sections and appropriate subheadings, even if information is brief. Output only valid HTML."
-                ),
+                "content": system_prompt
             },
             {
                 "role": "user",
-                "content": (
-                    f"From and merge these texts, Recent News and Events: {txt_summary} and Fundamental Analysis: {fa_summary}"
-                ),
+                "content": user_message
             },
         ]
     )
@@ -1704,6 +1764,17 @@ def merge_ta_fa_summary(gathered_data):
     - Extract the Technical Analysis summary for the technical analysis section.
     - Extract Technical indicator results (SMA, RSI, MACD, OBV, ADX) for their dedicated sections.
     - Extract the Fundamental Analysis summary for the fundamental analysis section.
+    - **For the 'Key Financial Metrics' section, you MUST ALWAYS display the following as responsive metric cards in a flex container. The core metrics to display as separate cards (even if a value is missing, show 'N/A'):**
+        - Revenues
+        - Sales
+        - Income (Net Income or Earnings)
+        - Gross Margins
+        - Liabilities
+        - Cash Flow (Operating Cash Flow)
+        - Debt
+        - Assets
+    You may add additional metric cards if relevant, but these are required.
+    - Each metric should appear in a “metric-card” styled <div> inside a parent <div class="metrics">, with a <div class="metric-title"> for the name and <div class="metric-value"> for the value.
     - Extract the user-selected weightings for Technical and Fundamental Analysis. Clearly display these weights in the 'User-Selected Analysis Weights' section.
     - When generating the overall investment recommendation, weigh the influence of Technical and Fundamental analyses according to the user-selected weights. The final recommendation (BUY, HOLD, or SELL) should be determined by a weighted synthesis of these two components, based on their assigned importance. Clearly communicate if the result is driven more by one analysis type due to a higher weighting.
     - The 'Integrated Analysis' and 'Alignment Assessment' sections should explicitly note which analysis type(s) had the greatest influence on the final recommendation, based on the weights.
@@ -1764,6 +1835,29 @@ def merge_ta_fa_summary(gathered_data):
                 background-color: #f9f9f9;
                 border-radius: 5px;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            .metrics {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 15px;
+                margin: 20px 0;
+            }
+            .metric-card {
+                background-color: #f0f7ff;
+                border-radius: 5px;
+                padding: 15px;
+                flex: 1;
+                min-width: 200px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            .metric-title {
+                font-weight: bold;
+                color: #2980b9;
+                margin-bottom: 5px;
+            }
+            .metric-value {
+                font-size: 1.2em;
+                font-weight: bold;
             }
             .recommendation {
                 font-weight: bold;
@@ -1861,6 +1955,54 @@ def merge_ta_fa_summary(gathered_data):
             </section>
 
             <section class="section">
+                <h2>Fundamental Analysis</h2>
+                <div id="fundamental-analysis">
+                    [FUNDAMENTAL_ANALYSIS_PLACEHOLDER]
+                </div>
+                <h3>Key Financial Metrics</h3>
+                <div class="metrics">
+                    <div class="metric-card">
+                        <div class="metric-title">Revenues</div>
+                        <div class="metric-value">[REVENUES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Sales</div>
+                        <div class="metric-value">[SALES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Income</div>
+                        <div class="metric-value">[INCOME_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Gross Margins</div>
+                        <div class="metric-value">[GROSS_MARGINS_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Liabilities</div>
+                        <div class="metric-value">[LIABILITIES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Cash Flow</div>
+                        <div class="metric-value">[CASH_FLOW_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Debt</div>
+                        <div class="metric-value">[DEBT_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Assets</div>
+                        <div class="metric-value">[ASSETS_PLACEHOLDER]</div>
+                    </div>
+                    [OPTIONAL_ADDITIONAL_METRIC_CARDS_PLACEHOLDER]
+                </div>
+                <h3>Valuation Analysis</h3>
+                <div class="indicator">
+                    <h4>Summary</h4>
+                    <p>[VALUATION_METRICS_PLACEHOLDER]</p>
+                </div>
+            </section>
+
+            <section class="section">
                 <h2>Technical Analysis</h2>
                 <div id="technical-analysis">
                     [TECHNICAL_ANALYSIS_PLACEHOLDER]
@@ -1885,23 +2027,6 @@ def merge_ta_fa_summary(gathered_data):
                 <div class="indicator">
                     <h4>ADX (Average Directional Index)</h4>
                     <p>[ADX_ANALYSIS_PLACEHOLDER]</p>
-                </div>
-            </section>
-
-            <section class="section">
-                <h2>Fundamental Analysis</h2>
-                <div id="fundamental-analysis">
-                    [FUNDAMENTAL_ANALYSIS_PLACEHOLDER]
-                </div>
-                <h3>Key Financial Metrics</h3>
-                <div class="indicator">
-                    <h4>Summary</h4>
-                    <p>[FINANCIAL_METRICS_PLACEHOLDER]</p>
-                </div>
-                <h3>Valuation Analysis</h3>
-                <div class="indicator">
-                    <h4>Summary</h4>
-                    <p>[VALUATION_METRICS_PLACEHOLDER]</p>
                 </div>
             </section>
 
@@ -1956,6 +2081,26 @@ def merge_ta_fa_summary(gathered_data):
         </div>
     </body>
     </html>
+
+    Recommendation Logic:
+
+    When generating the “Recommendation” (Buy, Hold, Sell), synthesize and weigh the findings from the Fundamental Analysis, and Technical Indicator Analysis according to the provided weights.
+
+    - **Key Financial Metrics Requirement:**  
+    In the 'Fundamental Analysis' section, always display the following metrics as individual metric-cards in a flex container: Revenues, Sales, Income, Gross Margins, Liabilities, Cash Flow, Debt, Assets (with "N/A" if missing). Additional metrics may be added as more cards.
+
+    If one weighting is clearly dominant (e.g., Fundamental Analysis = 0.7), emphasize in the summary and recommendation that the final decision is mainly driven by that analysis type.
+
+    The “Integrated Analysis” and “Alignment Assessment” sections should explicitly note which analysis types had the greatest influence on the final recommendation, based on the weights.
+
+    Justification:
+
+    The justification text for the recommendation must refer to the weights. For example:
+    “Given the user’s preference to weigh Fundamental Analysis at 60%, the final recommendation relies primarily on the company’s strong balance sheet and valuation ratios, despite any recent negative news events.”
+
+    Return the complete HTML document as your response.
+
+
     """
     user_message = f"The data to analyse: {json.dumps(gathered_data)}"
 
@@ -2598,7 +2743,21 @@ def merge_news_and_technical_analysis_summary(gathered_data):
     - When generating the overall investment recommendation, weigh the influence of Technical and News/Events analyses according to the user-selected weights. The final recommendation (BUY, HOLD, or SELL) should be determined by a weighted synthesis of these two components, based on their assigned importance. Clearly communicate if the result is driven more by one analysis type due to a higher weighting.
     - The 'Integrated Analysis' and 'Alignment Assessment' sections should explicitly note which analysis type(s) had the greatest influence on the final recommendation, based on the weights.
     - The justification text for the recommendation must refer to the weights. For example: “Given the user’s preference to weigh Technical Analysis at 70%, the final recommendation relies primarily on chart patterns and indicator signals, despite mixed news sentiment.”
-    - Return the complete HTML document as your response. Do not include any Markdown or plaintext. Do not leave out any required section, even if some are brief or data is missing.
+
+    Recommendation Logic:
+
+    When generating the “Recommendation” (Buy, Hold, Sell), synthesize and weigh the findings from the Technical Analysis, and News/Events Analysis according to the provided weights.
+
+    If one weighting is clearly dominant (e.g., Technical Analysis = 0.7), emphasize in the summary and recommendation that the final decision is mainly driven by that analysis type.
+
+    The “Integrated Analysis” and “Alignment Assessment” sections should explicitly note which analysis types had the greatest influence on the final recommendation, based on the weights.
+
+    Justification:
+
+    The justification text for the recommendation must refer to the weights. For example:
+    “Given the user’s preference to weigh Fundamental Analysis at 60%, the final recommendation relies primarily on the company’s strong balance sheet and valuation ratios, despite any recent negative news events.”
+
+    Return the complete HTML document as your response.
     """
 
     user_message = f"The data to analyse: {json.dumps(gathered_data)}"
@@ -2725,6 +2884,60 @@ def generate_company_news_message(company_name, time_period):
     )
     response = chat_completion.choices[0].message.content
     return response
+
+    # print("\n📤 Sending to Make.com webhook...")
+    # webhook_url = "https://hook.eu2.make.com/s4xsnimg9v87rrrckcwo88d9k57186q6"
+    # try:
+    #     response = requests.post(webhook_url, json=payload)
+    #     if response.status_code == 200:
+    #         print("✅ Successfully posted to the webhook.")
+    #     else:
+    #         print(f"❌ Webhook error: {response.status_code} - {response.text}")
+    # except Exception as e:
+    #     print(f"❌ Error posting to webhook: {e}")
+
+
+ 
+    # print(response.text)
+
+    # time.sleep(65)
+
+    # credentials_dict = {
+    #     "type": type_sa,
+    #     "project_id": project_id,
+    #     "private_key_id": private_key_id,
+    #     "private_key": private_key,
+    #     "client_email": client_email,
+    #     "client_id": client_id,
+    #     "auth_uri": auth_uri,
+    #     "token_uri": token_uri,
+    #     "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
+    #     "client_x509_cert_url": client_x509_cert_url,
+    #     "universe_domain": universe_domain
+    # }
+    # credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, ["https://www.googleapis.com/auth/spreadsheets"])
+
+    # gc = gspread.authorize(credentials)
+    # sh = gc.open_by_url(google_sheet_url)
+    # previous = sh.sheet1.get('A2')
+    # future = sh.sheet1.get('B2')
+          
+    # # chats = client.chat.completions.create(
+    # #     model="gpt-4o",
+    # #     messages=[
+    # #         {
+    # #             "role": "system",
+    # #             "content": "You are an artificial intelligence assistant, and your role is to "
+    # #                 f"present the latest news and updates along with the future news and update for {company_name} in a detailed, organized, and engaging manner."
+    # #         },
+    # #         {
+    # #             "role": "user",
+    # #             "content": f"Present the news and events aswell {company_name} over the past {time_period} retatining all the Dates aswell as the future news and events: Latest News and Updates text {previous}, Future News and Updates text {future}?"
+    # #         },
+    # #     ]
+    # # )
+    # # response = chats.choices[0].message.content
+    # return previous
 
 def extract_diffbot_data(link):
     url = f"https://api.diffbot.com/v3/analyze?url={link}&token=fdbc63a153d0d8da7c0dfb7ccef69945"
@@ -2943,356 +3156,138 @@ def ADX(company_name,data_text):
     response = chat_completion.choices[0].message.content
     return response
 
-
-def FUNDAMENTAL_ANALYSIS2(file_name, company_name, file):
-
-    today = date.today()
-    formatted = today.strftime('%Y-%m-%d')
-
-    system_prompt = system_prompt = f"""
-    You are a world-class investment analyst.
-    Using the available company data and your financial expertise, produce a comprehensive fundamental analysis report in valid HTML using the template below. 
-    Fill in all [PLACEHOLDER] tags with clear, professional analysis—even if some sections are brief. 
-    Be explicit in the recommendation (Buy, Hold, or Sell) and use supporting financial evidence throughout.
-
-    Style Requirements:
-    - Use clear, objective, and professional language suitable for investors.
-    - Avoid unnecessary jargon—explain technical terms where needed.
-    - Organize your report with clear sections and subheadings.
-    - Include all sections, even if some are brief due to limited data.
-
-    HTML Template:
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Fundamental Investment Analysis</title>
-        <style>
-            body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                line-height: 1.6;
-                color: #333;
-                max-width: 1200px;
-                margin: 0 auto;
-                padding: 0px;
-                background-color: transparent;
-            }}
-            .container {{
-                background-color: #fff;
-                border-radius: 8px;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                padding: 30px;
-                margin-bottom: 30px;
-            }}
-            h1 {{
-                color: #2c3e50;
-                border-bottom: 3px solid #3498db;
-                padding-bottom: 10px;
-                margin-top: 0;
-            }}
-            h2 {{
-                color: #2c3e50;
-                border-left: 5px solid #3498db;
-                padding-left: 15px;
-                margin-top: 30px;
-                background-color: #f8f9fa;
-                padding: 10px 15px;
-                border-radius: 0 5px 5px 0;
-            }}
-            h3 {{
-                color: #2c3e50;
-                margin-top: 20px;
-                border-bottom: 1px dashed #ddd;
-                padding-bottom: 5px;
-            }}
-            .section {{
-                margin-bottom: 30px;
-                padding: 20px;
-                background-color: #f9f9f9;
-                border-radius: 5px;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            }}
-            .summary-box {{
-                background-color: #e8f4fd;
-                border-left: 4px solid #3498db;
-                padding: 15px;
-                margin: 20px 0;
-                border-radius: 0 5px 5px 0;
-            }}
-            .recommendation {{
-                font-weight: bold;
-                font-size: 1.1em;
-                padding: 15px;
-                margin: 15px 0;
-                border-radius: 5px;
-                text-align: center;
-            }}
-            .buy {{
-                background-color: #d4edda;
-                color: #155724;
-                border: 1px solid #c3e6cb;
-            }}
-            .hold {{
-                background-color: #fff3cd;
-                color: #856404;
-                border: 1px solid #ffeeba;
-            }}
-            .sell {{
-                background-color: #f8d7da;
-                color: #721c24;
-                border: 1px solid #f5c6cb;
-            }}
-            .footnote {{
-                font-size: 0.9em;
-                font-style: italic;
-                color: #6c757d;
-                margin-top: 30px;
-                padding-top: 15px;
-                border-top: 1px solid #dee2e6;
-            }}
-            .highlight {{
-                background-color: #ffeaa7;
-                padding: 2px 4px;
-                border-radius: 3px;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>Fundamental Investment Analysis: [COMPANY_PLACEHOLDER]</h1>
-            
-            <section class="section">
-                <h2>Executive Summary</h2>
-                <div class="summary-box">
-                    <p>[SUMMARY_PLACEHOLDER]</p>
-                </div>
-                <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
-                    RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
-                    <br>
-                    <span style="font-size:0.95em; font-weight:normal;">
-                    <strong>Note:</strong> This recommendation is based on a thorough review of the company's fundamental financial and strategic data.
-                    </span>
-                </div>
-            </section>
-
-            <section class="section">
-                <h2>Financial Analysis</h2>
-                <h3>Income Statement</h3>
-                <ul>
-                    <li>[INCOME_STATEMENT_PLACEHOLDER]</li>
-                </ul>
-                <h3>Balance Sheet</h3>
-                <ul>
-                    <li>[BALANCE_SHEET_PLACEHOLDER]</li>
-                </ul>
-                <h3>Cash Flow Statement</h3>
-                <ul>
-                    <li>[CASH_FLOW_PLACEHOLDER]</li>
-                </ul>
-                <h3>Key Ratios and Metrics</h3>
-                <ul>
-                    <li>[RATIOS_PLACEHOLDER]</li>
-                </ul>
-            </section>
-
-            <section class="section">
-                <h2>Competitive Positioning and Market Analysis</h2>
-                <ul>
-                    <li>[COMPETITIVE_ANALYSIS_PLACEHOLDER]</li>
-                    <li>[SWOT_PLACEHOLDER]</li>
-                </ul>
-            </section>
-
-            <section class="section">
-                <h2>Management and Governance</h2>
-                <ul>
-                    <li>[MANAGEMENT_PLACEHOLDER]</li>
-                    <li>[STRATEGIC_DECISIONS_PLACEHOLDER]</li>
-                </ul>
-            </section>
-
-            <section class="section">
-                <h2>Conclusion and Outlook</h2>
-                <ul>
-                    <li>[CONCLUSION_PLACEHOLDER]</li>
-                    <li>[OUTLOOK_PLACEHOLDER]</li>
-                </ul>
-            </section>
-
-            <section class="section">
-                <h2>Actionable Recommendations</h2>
-                <ol>
-                    <li><strong>Investment Recommendation:</strong> [DETAILED_RECOMMENDATION_PLACEHOLDER]</li>
-                    <li><strong>Risk Management Suggestions:</strong> [RISK_MANAGEMENT_PLACEHOLDER]</li>
-                    <li><strong>Strategic Suggestions for Management:</strong> [MANAGEMENT_SUGGESTIONS_PLACEHOLDER]</li>
-                    <li><strong>Performance Monitoring Tips:</strong> [PERFORMANCE_MONITORING_PLACEHOLDER]</li>
-                </ol>
-            </section>
-
-            <div class="footnote">
-                <p>This fundamental analysis was generated on {formatted}. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    # assistant = client.beta.assistants.create(
-    #     name=f"{company_name} Assistant",  # Give your assistant a descriptive name
-    #     instructions=""" You are an AI assistant specializing in financial analysis and long-term investment insights, particularly skilled in reading, interpreting, and analyzing 10-K filings of public companies. Your primary objective is to conduct thorough fundamental analysis based on the financial data, management discussion, and other disclosures within these filings. By doing so, you identify strengths, weaknesses, risks, and opportunities of the company’s financial health, operational performance, and strategic positioning. Your approach includes the following steps: Reviewing Key Financial Statements: Analyze the income statement, balance sheet, and cash flow statement. Assess revenue growth, profitability margins, debt levels, cash flow trends, and capital expenditures over recent years to gauge the company’s financial stability and growth potential. Assessing Management’s Discussion and Analysis (MD&A): Evaluate the management’s narrative on financial performance, operational challenges, and future outlook. Identify any significant shifts in strategy, cost-cutting measures, or growth initiatives that might impact long-term viability. Analyzing Risk Factors: Carefully review the section on risk factors to understand industry-specific, regulatory, operational, and market risks that may affect the company’s future performance. Assess which risks are ongoing versus those that may be temporary or mitigated through strategic actions. Evaluating Competitive Position and Industry Trends: Examine the company’s competitive positioning, market share, and any significant developments in its industry. Look for insights on emerging trends, technological changes, or economic factors that may influence long-term prospects. Reviewing Financial Ratios and Key Metrics: Calculate and interpret relevant financial ratios—such as the price-to-earnings (P/E) ratio, debt-to-equity ratio, return on equity (ROE), and free cash flow yield. These metrics help gauge valuation, efficiency, leverage, and profitability relative to industry peers. Providing Actionable Investment Recommendations: Based on your findings, formulate long-term investment recommendations. Consider if the company appears undervalued or overvalued, and outline potential entry or exit points for investment. Your recommendations should emphasize a balanced view of potential returns and risks for long-term investors, aligning with value, growth, or income-based investment objectives. Your goal is to offer a comprehensive, data-driven perspective that enables users to make informed decisions about including the company in a long-term investment portfolio. Ensure all recommendations are clearly explained, with relevant data and metrics highlighted to support your conclusions.""",
-    #     tools=[{"type": "file_search"}],  # Required for file and vector store support
-    #     model="gpt-4.1"                  # Or "gpt-4.1", or your preferred model
-    # )
-
-    #assistant_id = assistant.id
-
-    temp_file_path = os.path.join(tempfile.gettempdir(), file)
-
-# Write the contents to the temporary file
-    with open(temp_file_path, 'wb') as temp_file:
-        temp_file.write(file_name.read())
-    
-    message_file = client.files.create(
-    file=open(temp_file_path, "rb"), purpose="assistants"
-    )
-
-    file_id = message_file.id
-
-    file_name_ai = message_file.filename
-
-    vector_store = client.vector_stores.create(name=f"{company_name} Store")
-    client.vector_stores.files.create(
-        vector_store_id=vector_store.id,
-        file_id=file_id
-    )
-
-    vector_store_id = vector_store.id
-
-    response = client.responses.create(
-    model="gpt-4.1",
-    instructions=""" You are an AI assistant specializing in financial analysis and long-term investment insights, particularly skilled in reading, interpreting, and analyzing 10-K filings of public companies. Your primary objective is to conduct thorough and robost fundamental analysis based on the financial data aka 10-K pdf filling, management discussion, and other disclosures within these filings. By doing so, you identify strengths, weaknesses, risks, and opportunities of the company’s financial health, operational performance, and strategic positioning. Your approach includes the following steps: Reviewing Key Financial Statements: Analyze the income statement, balance sheet, and cash flow statement. Assess revenue growth, profitability margins, debt levels, cash flow trends, and capital expenditures over recent years to gauge the company’s financial stability and growth potential. Assessing Management’s Discussion and Analysis (MD&A): Evaluate the management’s narrative on financial performance, operational challenges, and future outlook. Identify any significant shifts in strategy, cost-cutting measures, or growth initiatives that might impact long-term viability. Analyzing Risk Factors: Carefully review the section on risk factors to understand industry-specific, regulatory, operational, and market risks that may affect the company’s future performance. Assess which risks are ongoing versus those that may be temporary or mitigated through strategic actions. Evaluating Competitive Position and Industry Trends: Examine the company’s competitive positioning, market share, and any significant developments in its industry. Look for insights on emerging trends, technological changes, or economic factors that may influence long-term prospects. Reviewing Financial Ratios and Key Metrics: Calculate and interpret relevant financial ratios—such as the price-to-earnings (P/E) ratio, debt-to-equity ratio, return on equity (ROE), and free cash flow yield. These metrics help gauge valuation, efficiency, leverage, and profitability relative to industry peers. Providing Actionable Investment Recommendations: Based on your findings, formulate long-term investment recommendations. Consider if the company appears undervalued or overvalued, and outline potential entry or exit points for investment. Your recommendations should emphasize a balanced view of potential returns and risks for long-term investors, aligning with value, growth, or income-based investment objectives. Your goal is to offer a comprehensive, data-driven perspective that enables users to make informed decisions about including the company in a long-term investment portfolio. Ensure all recommendations are clearly explained, with relevant data and metrics highlighted to support your conclusions.""",
-    input= f"Conduct Fundamental Analysis on the only documenet which is of {company_name}'s finacial information, retrieve all the financial information including ratios, calculations, want a completly robust broken down analysis. To the level of a very senior investment analyst",
-    tools=[{
-        "type": "file_search",
-        "vector_store_ids": [vector_store_id]
-        }]
-    )
-
-    response_id = response.id
-
-    fetched = client.responses.retrieve(response_id)
-    text = fetched.output_text
-    
-
-
-    # data = {"File_id": file_id, "Company Name": company_name, "File_name": file}
-
-    # webhook_url = "https://hook.eu2.make.com/d68cwl3ujkpqmgrnbpgy9mx3d06vs198"
-    # if webhook_url:
-    #     response = requests.post(webhook_url,data)
-    # else: 
-    #     print("Error")
-
-    # time.sleep(65)
-
-    # credentials_dict = {
-    #     "type": type_sa,
-    #     "project_id": project_id,
-    #     "private_key_id": private_key_id,
-    #     "private_key": private_key,
-    #     "client_email": client_email,
-    #     "client_id": client_id,
-    #     "auth_uri": auth_uri,
-    #     "token_uri": token_uri,
-    #     "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
-    #     "client_x509_cert_url": client_x509_cert_url,
-    #     "universe_domain": universe_domain
-    # }
-    # credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, ["https://www.googleapis.com/auth/spreadsheets"])
-    # gc = gspread.authorize(credentials)
-    # sh = gc.open_by_url(google_sheet_url)
-    # anaylsis = sh.sheet1.get('C2')
-
-    chat_completion = client.chat.completions.create(
-        model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
-        messages=[
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"fromat this text {text}"   
-                ),
-            },
-        ]
-    )
-
-    # Extract and return the AI-generated response
-    response = chat_completion.choices[0].message.content
-
-    deleted_vector_store_file = client.vector_stores.delete(
-        vector_store_id=vector_store_id
-    )
-    
-    print("File successfully deleted from vector store.")
-    return response 
-
 def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
-    
+
     temp_file_path = os.path.join(tempfile.gettempdir(), file)
 
 # Write the contents to the temporary file
     with open(temp_file_path, 'wb') as temp_file:
         temp_file.write(file_name.read())
-    
-    message_file = client.files.create(
-    file=open(temp_file_path, "rb"), purpose="assistants"
-    )
 
-    file_id = message_file.id
-
-    file_name_ai = message_file.filename
-
-    vector_store = client.vector_stores.create(name=f"{company_name} Store")
-    client.vector_stores.files.create(
-        vector_store_id=vector_store.id,
-        file_id=file_id
-    )
-
-    vector_store_id = vector_store.id
-
-    response = client.responses.create(
-    model="gpt-4.1",
-    instructions=""" 
-    You are an AI assistant specializing in financial analysis and long-term investment insights. Your task is to thoroughly analyze a 10-K filing or similar financial document for a public company, using only the content provided from the vector store. 
+    system_prompt = """
+    You are an AI assistant specializing in financial analysis and long-term investment insights. Your task is to thoroughly analyze a 10-K or 10-Q filing or similar financial document for a public company, using only the content provided below.
 
     **Instructions:**
     - Do not ask any follow-up questions or request clarifications. Do not prompt the user for any additional input or context. Use only the information in the document provided.
+    - **ALWAYS prioritize** the following financial metrics in your analysis: **revenue, income, sales, debt, liabilities, gross margins, and assets**. Ensure these areas are reviewed and reported on first, with maximum detail and supporting data.
     - Analyze the financial information as follows:
-        1. Review and break down the key financial statements (income statement, balance sheet, cash flow). Assess revenue growth, profitability margins, debt, cash flow trends, and capital expenditures over recent years for financial stability and growth potential.
-        2. Evaluate Management’s Discussion and Analysis (MD&A) for narrative on financial performance, operational challenges, and future outlook. Identify major shifts, cost measures, or growth initiatives.
-        3. Analyze the risk factors section for industry, regulatory, operational, or market risks, distinguishing between ongoing and potentially mitigated risks.
-        4. Evaluate the company’s competitive position, market share, and relevant industry trends (including technological/economic changes) that may affect long-term prospects.
-        5. Calculate and interpret financial ratios (P/E, debt-to-equity, ROE, free cash flow yield, etc.) and compare to industry peers where possible.
-        6. Provide actionable investment recommendations based solely on the findings, including whether the company is under/overvalued, and any suggested entry/exit points. Emphasize potential returns and risks for long-term investors.
+        1. Begin your analysis with a focused breakdown of the company's revenue, income, sales, debt, liabilities, gross margins, and assets, referencing all available figures and trends for each. Discuss how these metrics have changed over recent years and what they imply for the company's financial stability, operational performance, and growth prospects.
+        2. Review the remaining key financial statements (income statement, balance sheet, cash flow). Assess profitability margins, cash flow trends, and capital expenditures, supplementing your initial breakdown where relevant.
+        3. Evaluate Management’s Discussion and Analysis (MD&A) for narrative on financial performance, operational challenges, and future outlook. Identify major shifts, cost measures, or growth initiatives.
+        4. Analyze the risk factors section for industry, regulatory, operational, or market risks, distinguishing between ongoing and potentially mitigated risks.
+        5. Evaluate the company’s competitive position, market share, and relevant industry trends (including technological/economic changes) that may affect long-term prospects.
+        6. Calculate and interpret financial ratios (P/E, debt-to-equity, ROE, free cash flow yield, etc.) and compare to industry peers where possible.
+        7. Provide actionable investment recommendations based solely on the findings, including whether the company is under/overvalued, and any suggested entry/exit points. Emphasize potential returns and risks for long-term investors.
 
     **Output:**  
     Your analysis should be comprehensive, detailed, and data-driven, to the standard of a senior investment analyst. Clearly explain all recommendations and highlight supporting data/metrics. Do not output anything outside this analysis or request further information.
+    """
 
-    """,
-    input=f"Conduct Fundamental Analysis on the only document, which is {company_name}'s financial information. Retrieve all relevant financial data, including ratios and calculations, and provide a robust, broken-down analysis to the level of a very senior investment analyst. Do not ask any questions—just analyze and report.",
-    tools=[{
-        "type": "file_search",
-        "vector_store_ids": [vector_store_id]
-        }]
+
+    # 1. Extract full text
+    full_text = ""
+    with pdfplumber.open(temp_file_path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                full_text += page_text + "\n\n"
+    
+
+    tables_dict = {}
+    with pdfplumber.open(temp_file_path) as pdf:
+        for page_number, page in enumerate(pdf.pages, start=1):
+            tables = page.extract_tables()
+            for idx, table in enumerate(tables):
+                df = pd.DataFrame(table)
+                # Only keep tables with real content
+                if df.shape[0] > 1 and df.shape[1] > 1:
+                    df = df.dropna(axis=0, how='all').dropna(axis=1, how='all')
+                    key = f"page_{page_number}_table_{idx+1}"
+                    tables_dict[key] = df
+
+    tables_text_dict = {}
+    for key, df in tables_dict.items():
+        tables_text_dict[key] = df.to_string(index=False)
+
+    print("bitch")
+    
+    user_prompt = f"""
+    Conduct a comprehensive Fundamental Analysis of the following financial document for Apple Inc. Retrieve all relevant financial data, including ratios and calculations, and provide a robust, broken-down analysis to the level of a very senior investment analyst. Do not ask any questions—just analyze and report.
+
+    ---
+    [Full Narrative Text]
+    {full_text}
+
+    ---
+    [Extracted Tables]
+    {tables_text_dict}
+    """
+        
+    output_response = client.chat.completions.create(
+    model="gpt-4.1",  # or "gpt-4-turbo", "gpt-4.1", etc.
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+       
     )
 
-    response_id = response.id
+    response = output_response.choices[0].message.content
 
-    fetched = client.responses.retrieve(response_id)
-    text = fetched.output_text
+# Write the contents to the temporary file
+    # with open(temp_file_path, 'wb') as temp_file:
+    #     temp_file.write(file_name.read())
+    
+    # message_file = client.files.create(
+    # file=open(temp_file_path, "rb"), purpose="assistants"
+    # )
+
+    
+
+    # file_id = message_file.id
+
+    # file_name_ai = message_file.filename
+
+    # vector_store = client.vector_stores.create(name=f"{company_name} Store")
+    # client.vector_stores.files.create(
+    #     vector_store_id=vector_store.id,
+    #     file_id=file_id
+    # )
+
+    # vector_store_id = vector_store.id
+
+    # response = client.responses.create(
+    # model="gpt-4.1",
+    # instructions=""" 
+    # You are an AI assistant specializing in financial analysis and long-term investment insights. Your task is to thoroughly analyze a 10-K filing or similar financial document for a public company, using only the content provided from the vector store. 
+
+    # **Instructions:**
+    # - Do not ask any follow-up questions or request clarifications. Do not prompt the user for any additional input or context. Use only the information in the document provided.
+    # - Analyze the financial information as follows:
+    #     1. Review and break down the key financial statements (income statement, balance sheet, cash flow). Assess revenue growth, profitability margins, debt, cash flow trends, and capital expenditures over recent years for financial stability and growth potential.
+    #     2. Evaluate Management’s Discussion and Analysis (MD&A) for narrative on financial performance, operational challenges, and future outlook. Identify major shifts, cost measures, or growth initiatives.
+    #     3. Analyze the risk factors section for industry, regulatory, operational, or market risks, distinguishing between ongoing and potentially mitigated risks.
+    #     4. Evaluate the company’s competitive position, market share, and relevant industry trends (including technological/economic changes) that may affect long-term prospects.
+    #     5. Calculate and interpret financial ratios (P/E, debt-to-equity, ROE, free cash flow yield, etc.) and compare to industry peers where possible.
+    #     6. Provide actionable investment recommendations based solely on the findings, including whether the company is under/overvalued, and any suggested entry/exit points. Emphasize potential returns and risks for long-term investors.
+
+    # **Output:**  
+    # Your analysis should be comprehensive, detailed, and data-driven, to the standard of a senior investment analyst. Clearly explain all recommendations and highlight supporting data/metrics. Do not output anything outside this analysis or request further information.
+
+    # """,
+    # input=f"Conduct Fundamental Analysis on the only document, which is {company_name}'s financial information. Retrieve all relevant financial data, including ratios and calculations, and provide a robust, broken-down analysis to the level of a very senior investment analyst. Do not ask any questions—just analyze and report.",
+    # tools=[{
+    #     "type": "file_search",
+    #     "vector_store_ids": [vector_store_id]
+    #     }]
+    # )
+
+    # response_id = response.id
+
+    # fetched = client.responses.retrieve(response_id)
+    # text = fetched.output_text
+    # print("bitch")
+    # print(text)
 
     # chat_completion = client.chat.completions.create(
     #     model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
@@ -3389,12 +3384,361 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
     # # Extract and return the AI-generated response
     # response = chat_completion.choices[0].message.content
 
-    deleted_vector_store_file = client.vector_stores.delete(
-         vector_store_id=vector_store_id
-     )
+    # deleted_vector_store_file = client.vector_stores.delete(
+    #     vector_store_id=vector_store_id
+    # )
     
     print("File successfully deleted from vector store.")
-    return text 
+    return response
+    
+
+def FUNDAMENTAL_ANALYSIS2(file_name, company_name, file):
+
+    today = date.today()
+    formatted = today.strftime('%Y-%m-%d')
+
+    system_prompt = f"""
+    You are a world-class investment analyst.
+    Using the available company data and your financial expertise, produce a comprehensive fundamental analysis report in valid HTML using the template below. 
+    Fill in all [PLACEHOLDER] tags with clear, professional analysis—even if some sections are brief. 
+    Be explicit in the recommendation (Buy, Hold, or Sell) and use supporting financial evidence throughout.
+
+    Style Requirements:
+    - Use clear, objective, and professional language suitable for investors.
+    - Avoid unnecessary jargon—explain technical terms where needed.
+    - Organize your report with clear sections and subheadings.
+    - Include all sections, even if some are brief due to limited data.
+
+    **Key Financial Metrics Requirement:**
+    - Always include a "Key Financial Metrics" section at the top of Financial Analysis.
+    - Display the following eight metrics as individual metric-cards in a flex container (with "N/A" if missing): Revenues, Sales, Income (Net Income or Earnings), Gross Margins, Liabilities, Cash Flow (Operating), Debt, Assets.
+    - Additional metrics may be displayed as extra cards if data is available.
+    - Each card uses the <div class="metric-card"><div class="metric-title">[Metric]</div><div class="metric-value">[Value]</div></div> structure within <div class="metrics">.
+
+    HTML Template:
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Fundamental Investment Analysis</title>
+        <style>
+            body {{
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 0px;
+                background-color: transparent;
+            }}
+            .container {{
+                background-color: #fff;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                padding: 30px;
+                margin-bottom: 30px;
+            }}
+            h1 {{
+                color: #2c3e50;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+                margin-top: 0;
+            }}
+            h2 {{
+                color: #2c3e50;
+                border-left: 5px solid #3498db;
+                padding-left: 15px;
+                margin-top: 30px;
+                background-color: #f8f9fa;
+                padding: 10px 15px;
+                border-radius: 0 5px 5px 0;
+            }}
+            h3 {{
+                color: #2c3e50;
+                margin-top: 20px;
+                border-bottom: 1px dashed #ddd;
+                padding-bottom: 5px;
+            }}
+            .section {{
+                margin-bottom: 30px;
+                padding: 20px;
+                background-color: #f9f9f9;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }}
+            .metrics {{
+                display: flex;
+                flex-wrap: wrap;
+                gap: 15px;
+                margin: 20px 0;
+            }}
+            .metric-card {{
+                background-color: #f0f7ff;
+                border-radius: 5px;
+                padding: 15px;
+                flex: 1;
+                min-width: 200px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }}
+            .metric-title {{
+                font-weight: bold;
+                color: #2980b9;
+                margin-bottom: 5px;
+            }}
+            .metric-value {{
+                font-size: 1.2em;
+                font-weight: bold;
+            }}
+            .summary-box {{
+                background-color: #e8f4fd;
+                border-left: 4px solid #3498db;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 0 5px 5px 0;
+            }}
+            .recommendation {{
+                font-weight: bold;
+                font-size: 1.1em;
+                padding: 15px;
+                margin: 15px 0;
+                border-radius: 5px;
+                text-align: center;
+            }}
+            .buy {{
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }}
+            .hold {{
+                background-color: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeeba;
+            }}
+            .sell {{
+                background-color: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }}
+            .footnote {{
+                font-size: 0.9em;
+                font-style: italic;
+                color: #6c757d;
+                margin-top: 30px;
+                padding-top: 15px;
+                border-top: 1px solid #dee2e6;
+            }}
+            .highlight {{
+                background-color: #ffeaa7;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Fundamental Investment Analysis: [COMPANY_PLACEHOLDER]</h1>
+            
+            <section class="section">
+                <h2>Executive Summary</h2>
+                <div class="summary-box">
+                    <p>[SUMMARY_PLACEHOLDER]</p>
+                </div>
+                <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
+                    RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
+                    <br>
+                    <span style="font-size:0.95em; font-weight:normal;">
+                    <strong>Note:</strong> This recommendation is based on a thorough review of the company's fundamental financial and strategic data.
+                    </span>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>Financial Analysis</h2>
+                <h3>Key Financial Metrics</h3>
+                <div class="metrics">
+                    <div class="metric-card">
+                        <div class="metric-title">Revenues</div>
+                        <div class="metric-value">[REVENUES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Sales</div>
+                        <div class="metric-value">[SALES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Income</div>
+                        <div class="metric-value">[INCOME_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Gross Margins</div>
+                        <div class="metric-value">[GROSS_MARGINS_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Liabilities</div>
+                        <div class="metric-value">[LIABILITIES_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Cash Flow</div>
+                        <div class="metric-value">[CASH_FLOW_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Debt</div>
+                        <div class="metric-value">[DEBT_PLACEHOLDER]</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-title">Assets</div>
+                        <div class="metric-value">[ASSETS_PLACEHOLDER]</div>
+                    </div>
+                    [OPTIONAL_ADDITIONAL_METRIC_CARDS_PLACEHOLDER]
+                </div>
+                <h3>Income Statement</h3>
+                <ul>
+                    <li>[INCOME_STATEMENT_PLACEHOLDER]</li>
+                </ul>
+                <h3>Balance Sheet</h3>
+                <ul>
+                    <li>[BALANCE_SHEET_PLACEHOLDER]</li>
+                </ul>
+                <h3>Cash Flow Statement</h3>
+                <ul>
+                    <li>[CASH_FLOW_PLACEHOLDER]</li>
+                </ul>
+                <h3>Key Ratios and Metrics</h3>
+                <ul>
+                    <li>[RATIOS_PLACEHOLDER]</li>
+                </ul>
+            </section>
+
+            <section class="section">
+                <h2>Competitive Positioning and Market Analysis</h2>
+                <ul>
+                    <li>[COMPETITIVE_ANALYSIS_PLACEHOLDER]</li>
+                    <li>[SWOT_PLACEHOLDER]</li>
+                </ul>
+            </section>
+
+            <section class="section">
+                <h2>Management and Governance</h2>
+                <ul>
+                    <li>[MANAGEMENT_PLACEHOLDER]</li>
+                    <li>[STRATEGIC_DECISIONS_PLACEHOLDER]</li>
+                </ul>
+            </section>
+
+            <section class="section">
+                <h2>Conclusion and Outlook</h2>
+                <ul>
+                    <li>[CONCLUSION_PLACEHOLDER]</li>
+                    <li>[OUTLOOK_PLACEHOLDER]</li>
+                </ul>
+            </section>
+
+            <section class="section">
+                <h2>Actionable Recommendations</h2>
+                <ol>
+                    <li><strong>Investment Recommendation:</strong> [DETAILED_RECOMMENDATION_PLACEHOLDER]</li>
+                    <li><strong>Risk Management Suggestions:</strong> [RISK_MANAGEMENT_PLACEHOLDER]</li>
+                    <li><strong>Strategic Suggestions for Management:</strong> [MANAGEMENT_SUGGESTIONS_PLACEHOLDER]</li>
+                    <li><strong>Performance Monitoring Tips:</strong> [PERFORMANCE_MONITORING_PLACEHOLDER]</li>
+                </ol>
+            </section>
+
+            <div class="footnote">
+                <p>This fundamental analysis was generated on {formatted}. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+
+    temp_file_path = os.path.join(tempfile.gettempdir(), file)
+
+# Write the contents to the temporary file
+    with open(temp_file_path, 'wb') as temp_file:
+        temp_file.write(file_name.read())
+    
+    message_file = client.files.create(
+    file=open(temp_file_path, "rb"), purpose="assistants"
+    )
+
+    file_id = message_file.id
+
+    file_name_ai = message_file.filename
+
+    vector_store = client.vector_stores.create(name=f"{company_name} Store")
+    client.vector_stores.files.create(
+        vector_store_id=vector_store.id,
+        file_id=file_id
+    )
+
+    vector_store_id = vector_store.id
+
+    response = client.responses.create(
+    model="gpt-4.1",
+    instructions=""" You are an AI assistant specializing in financial analysis and long-term investment insights, particularly skilled in reading, interpreting, and analyzing 10-K filings of public companies. Your primary objective is to conduct thorough fundamental analysis based on the financial data, management discussion, and other disclosures within these filings. By doing so, you identify strengths, weaknesses, risks, and opportunities of the company’s financial health, operational performance, and strategic positioning. Your approach includes the following steps: Reviewing Key Financial Statements: Analyze the income statement, balance sheet, and cash flow statement. Assess revenue growth, profitability margins, debt levels, cash flow trends, and capital expenditures over recent years to gauge the company’s financial stability and growth potential. Assessing Management’s Discussion and Analysis (MD&A): Evaluate the management’s narrative on financial performance, operational challenges, and future outlook. Identify any significant shifts in strategy, cost-cutting measures, or growth initiatives that might impact long-term viability. Analyzing Risk Factors: Carefully review the section on risk factors to understand industry-specific, regulatory, operational, and market risks that may affect the company’s future performance. Assess which risks are ongoing versus those that may be temporary or mitigated through strategic actions. Evaluating Competitive Position and Industry Trends: Examine the company’s competitive positioning, market share, and any significant developments in its industry. Look for insights on emerging trends, technological changes, or economic factors that may influence long-term prospects. Reviewing Financial Ratios and Key Metrics: Calculate and interpret relevant financial ratios—such as the price-to-earnings (P/E) ratio, debt-to-equity ratio, return on equity (ROE), and free cash flow yield. These metrics help gauge valuation, efficiency, leverage, and profitability relative to industry peers. Providing Actionable Investment Recommendations: Based on your findings, formulate long-term investment recommendations. Consider if the company appears undervalued or overvalued, and outline potential entry or exit points for investment. Your recommendations should emphasize a balanced view of potential returns and risks for long-term investors, aligning with value, growth, or income-based investment objectives. Your goal is to offer a comprehensive, data-driven perspective that enables users to make informed decisions about including the company in a long-term investment portfolio. Ensure all recommendations are clearly explained, with relevant data and metrics highlighted to support your conclusions.""",
+    input= f"Conduct Fundamental Analysis of {company_name}'s finacial statements, using the document in the vector store: {file_name_ai} to retrieve all the information",
+    tools=[{
+        "type": "file_search",
+        "vector_store_ids": [vector_store_id]
+    }]
+    )
+    
+
+
+    # data = {"File_id": file_id, "Company Name": company_name, "File_name": file}
+
+    # webhook_url = "https://hook.eu2.make.com/d68cwl3ujkpqmgrnbpgy9mx3d06vs198"
+    # if webhook_url:
+    #     response = requests.post(webhook_url,data)
+    # else: 
+    #     print("Error")
+
+    # time.sleep(65)
+
+    # credentials_dict = {
+    #     "type": type_sa,
+    #     "project_id": project_id,
+    #     "private_key_id": private_key_id,
+    #     "private_key": private_key,
+    #     "client_email": client_email,
+    #     "client_id": client_id,
+    #     "auth_uri": auth_uri,
+    #     "token_uri": token_uri,
+    #     "auth_provider_x509_cert_url": auth_provider_x509_cert_url,
+    #     "client_x509_cert_url": client_x509_cert_url,
+    #     "universe_domain": universe_domain
+    # }
+    # credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, ["https://www.googleapis.com/auth/spreadsheets"])
+    # gc = gspread.authorize(credentials)
+    # sh = gc.open_by_url(google_sheet_url)
+    # anaylsis = sh.sheet1.get('C2')
+
+    chat_completion = client.chat.completions.create(
+        model="gpt-4.1",  # Ensure that you use a model available in your OpenAI subscription
+        messages=[
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"fromat this text {response}"   
+                ),
+            },
+        ]
+    )
+
+    # Extract and return the AI-generated response
+    response = chat_completion.choices[0].message.content
+
+    deleted_vector_store_file = client.vector_stores.delete(
+        vector_store_id=vector_store_id
+    )
+    
+    print("File successfully deleted from vector store.")
+    return response 
     
    
 def SUMMARY(company_name, BD, SMA, RSI, MACD, OBV, ADX, weighted_score, weight_choice):
