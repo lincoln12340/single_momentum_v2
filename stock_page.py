@@ -1023,6 +1023,17 @@ def generate_investment_analysis(gathered_data):
     - Do not output any Markdown, plain text, or explanation before or after the HTML.  
     - Only output valid HTML using the supplied template and placeholder replacements.
 
+    **FUNDAMENTAL ANALYSIS STRUCTURE:**  
+    Within the <div id="fundamental-analysis">, ALWAYS structure the output using the following five bolded subheadings, each as a <strong> label, followed by a short, clear paragraph for each:
+    
+    <strong>Business Highlights:</strong> [Summary of major achievements, operations, or developments impacting the business.]
+    <strong>Financial Health:</strong> [Assessment of the balance sheet, key ratios, liquidity, solvency, and overall financial stability.]
+    <strong>Risk Factors:</strong> [Identification and commentary on key risks from filings or market perception.]
+    <strong>Competitive & Industry Position:</strong> [Analysis of market standing, competition, and industry trends.]
+    <strong>Valuation & Investment Case:</strong> [Insight on valuation multiples, growth prospects, and investment rationale.]
+    
+    You MUST follow this order and format for every report.
+
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -1310,6 +1321,11 @@ def generate_investment_analysis(gathered_data):
                 <div class="indicator">
                     <h4>ADX (Average Directional Index)</h4>
                     <p>[ADX_ANALYSIS_PLACEHOLDER]</p>
+                </div>
+
+                <div class="indicator">
+                    <h4>BD (Bollinger Bands)</h4>
+                    <p>[BD_ANALYSIS_PLACEHOLDER]</p>
                 </div>
                 
                 <h3>Support and Resistance Levels</h3>
