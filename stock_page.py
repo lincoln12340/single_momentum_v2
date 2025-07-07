@@ -356,8 +356,12 @@ def stock_page():
                 }
 
                 summary = SUMMARY2(gathered_data)
-                text_ovr = clean_html_response(summary)
-                st.components.v1.html(text_ovr, height=700, scrolling=True)
+                html_output_no_fix = clean_html_response(summary)
+                html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+                st.components.v1.html(html_output, height=700, scrolling=True)
+
+                soup = BeautifulSoup(html_output, "html.parser")
+                plain_text = soup.get_text(separator='\n')
 
 
                 st.session_state["gathered_data"] = gathered_data
@@ -504,9 +508,12 @@ def stock_page():
 
                 update_progress(progress_bar, 100, 100, "Finalising...")
                 ovr_summary = merge_news_and_technical_analysis_summary(gathered_data)
+                html_output_no_fix = clean_html_response(ovr_summary)
+                html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+                st.components.v1.html(html_output, height=700, scrolling=True)
 
-                text_ovr = clean_html_response(ovr_summary)
-                st.components.v1.html(text_ovr, height=700, scrolling=True)
+                soup = BeautifulSoup(html_output, "html.parser")
+                plain_text = soup.get_text(separator='\n')
 
                 st.session_state["gathered_data"] = gathered_data
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
@@ -639,9 +646,12 @@ def stock_page():
                 }
 
                 fa_ta_summary = merge_ta_fa_summary(gathered_data)
+                html_output_no_fix = clean_html_response(fa_ta_summary)
+                html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+                st.components.v1.html(html_output, height=700, scrolling=True)
 
-                text_ovr = clean_html_response(fa_ta_summary)
-                st.components.v1.html(text_ovr, height=700, scrolling=True)
+                soup = BeautifulSoup(html_output, "html.parser")
+                plain_text = soup.get_text(separator='\n')
 
                 st.session_state["gathered_data"] = gathered_data
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
@@ -835,8 +845,12 @@ def stock_page():
             }
 
             txt_ovr = txt_conclusion2(gathered_data)
-            text_ovr = clean_html_response(txt_ovr)
-            st.components.v1.html(text_ovr, height=700, scrolling=True)
+            html_output_no_fix = clean_html_response(txt_over)
+            html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+            st.components.v1.html(html_output, height=700, scrolling=True)
+
+            soup = BeautifulSoup(html_output, "html.parser")
+            plain_text = soup.get_text(separator='\n')
 
 
             st.session_state["gathered_data"] = gathered_data
@@ -890,58 +904,66 @@ def stock_page():
                     #update_progress(progress_bar, 100, 100, "Analysis Complete...")
                 
                 
-                #text_ovr_t = convert_to_raw_text(fa_txt_summary)
-                #st.write(text_ovr_t)
+            #text_ovr_t = convert_to_raw_text(fa_txt_summary)
+            #st.write(text_ovr_t)
 
-               
+           
 
-                st.session_state["run_analysis_complete"] = True
+            st.session_state["run_analysis_complete"] = True
 
-                gathered_data = {
-                    "Ticker": ticker,
-                    "Company": company,
-                    "Timeframe": timeframe,
-                    "News and Events Overall": txt_ovr,
-                    "Fundamental Analysis": fa_summary
-                }
+            gathered_data = {
+                "Ticker": ticker,
+                "Company": company,
+                "Timeframe": timeframe,
+                "News and Events Overall": txt_ovr,
+                "Fundamental Analysis": fa_summary
+            }
 
-                fa_txt_summary = fa_summary_and_news_summary(gathered_data)
-                update_progress(progress_bar, 100, 100, "Analysis Complete...")
+            update_progress(progress_bar, 100, 100, "Analysis Complete...")
+            fa_txt_summary = fa_summary_and_news_summary(gathered_data)
+            html_output_no_fix = clean_html_response(fa_txt_summary)
+            html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+            st.components.v1.html(html_output, height=700, scrolling=True)
 
-                text_ovr = clean_html_response(fa_txt_summary)
-                st.components.v1.html(text_ovr, height=700, scrolling=True)
+            soup = BeautifulSoup(html_output, "html.parser")
+            plain_text = soup.get_text(separator='\n')
 
-                st.session_state["gathered_data"] = gathered_data
-                st.session_state["analysis_complete"] = True  # Mark analysis as complete
-                st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
+        
 
-                if "html_output" not in st.session_state:
-                    st.session_state["html_output"] = html_output
-                if "plain_text" not in st.session_state:
-                    st.session_state["plain_text"] = plain_text
-    
-                st.download_button(
-                    label="Download as HTML",
-                    data=text_ovr,
-                    file_name="stock_analysis_summary.html",
-                    mime="text/html"
-                )
-    
-                st.download_button(
-                    label="Download as Plain Text",
-                    data=st.session_state["plain_text"],
-                    file_name="stock_analysis_summary.txt",
-                    mime="text/plain"
-                )                
-                if st.button("Run Another Stock"):
-                    analysis_complete = False
-                    st.session_state.technical_analysis = False
-                    st.session_state.news_and_events = False
-                    st.session_state["1_month"] = False
-                    st.session_state["3_months"] = False
-                    st.session_state["6_months"] = False
-                    st.session_state["1_year"] = False
-                    st.experimental_rerun() 
+        
+
+            st.session_state["gathered_data"] = gathered_data
+            st.session_state["analysis_complete"] = True  # Mark analysis as complete
+            st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
+
+            if "html_output" not in st.session_state:
+                st.session_state["html_output"] = html_output
+            if "plain_text" not in st.session_state:
+                st.session_state["plain_text"] = plain_text
+
+            st.download_button(
+                label="Download as HTML",
+                data=text_ovr,
+                file_name="stock_analysis_summary.html",
+                mime="text/html"
+            )
+        
+
+            st.download_button(
+                label="Download as Plain Text",
+                data=st.session_state["plain_text"],
+                file_name="stock_analysis_summary.txt",
+                mime="text/plain"
+            )                
+            if st.button("Run Another Stock"):
+                analysis_complete = False
+                st.session_state.technical_analysis = False
+                st.session_state.news_and_events = False
+                st.session_state["1_month"] = False
+                st.session_state["3_months"] = False
+                st.session_state["6_months"] = False
+                st.session_state["1_year"] = False
+                st.experimental_rerun() 
 
                 
 
@@ -957,8 +979,7 @@ def stock_page():
             #text_fs = convert_to_raw_text(fa_summary)
             #st.write(text_fs)
 
-            text_ovr = clean_html_response(fa_summary)
-            st.components.v1.html(text_ovr, height=700, scrolling=True)
+           
 
 
             st.session_state["run_analysis_complete"] = True
@@ -981,6 +1002,15 @@ def stock_page():
 
                 }
             }
+
+            update_progress(progress_bar, 100, 100, "Analysis Complete...")
+            html_output_no_fix = clean_html_response(fa_summary)
+            html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+            st.components.v1.html(html_output, height=700, scrolling=True)
+
+            soup = BeautifulSoup(html_output, "html.parser")
+            plain_text = soup.get_text(separator='\n')
+            
             st.session_state["gathered_data"] = gathered_data
             st.session_state["analysis_complete"] = True  # Mark analysis as complete
             st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
