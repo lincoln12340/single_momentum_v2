@@ -21,6 +21,14 @@ import pandas as pd
 from serpapi import GoogleSearch
 from dateutil.relativedelta import relativedelta
 import pdfplumber
+import markdown2
+from bs4 import BeautifulSoup
+import io
+from docx import Document
+
+
+
+
 
 
 #load_dotenv()
@@ -84,6 +92,39 @@ def fetch_alpha_vantage_data(ticker, period):
         st.error(f"Alpha Vantage Error: {str(e)}")
         return None
 
+def fix_html_with_embedded_markdown(text):
+    """
+    Detects markdown sections embedded within mostly-HTML output,
+    converts them to HTML, and replaces them in the text.
+    """
+    if not text:
+        return text
+
+    # Don't touch it if it's a fully valid HTML document
+    if bool(re.search(r'<html', text, re.IGNORECASE)):
+        return text
+
+    # Pattern to detect markdown-style headings, lists, bold, etc.
+    markdown_blocks = list(re.finditer(
+        r'(?:(^|\n)(\s*)(#{1,6} .+|[-*+] .+|\d+\..+|>\s.+|\*\*.+\*\*|__.+__)([\s\S]+?))(?=\n{2,}|\Z)', 
+        text,
+        flags=re.MULTILINE
+    ))
+
+    # Convert and replace each markdown block
+    for match in reversed(markdown_blocks):  # reversed to not break indices when replacing
+        md_block = match.group(0).strip()
+        # Only convert if not inside an HTML tag already
+        if not re.match(r'<[a-z][^>]*>', md_block):
+            html_block = markdown2.markdown(md_block)
+            # Optionally strip <p> if markdown2 wraps the entire block
+            if html_block.startswith('<p>') and html_block.endswith('</p>\n'):
+                html_block = html_block[3:-5]
+            # Replace markdown block with HTML
+            start, end = match.span(0)
+            text = text[:start] + html_block + text[end:]
+
+    return text
 
 
 def stock_page():
@@ -666,29 +707,68 @@ def stock_page():
                 }
 
                 html_text= generate_investment_analysis(gathered_data)
-                html_output = clean_html_response(html_text)
+                html_output_no_fix = clean_html_response(html_text)
+                html_output = fix_html_with_embedded_markdown(html_output_no_fix)
                 st.components.v1.html(html_output, height=700, scrolling=True)
+
+                soup = BeautifulSoup(html_output, "html.parser")
+                plain_text = soup.get_text(separator='\n')
+
                 
                 st.session_state["gathered_data"] = gathered_data
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
                 st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
 
-                st.download_button(
-                    label="Download as HTML",
-                    data=html_output,
-                    file_name="stock_analysis_summary.html",
-                    mime="text/html"
-                )
+              
 
-                if st.button("Run Another Stock"):
-                    analysis_complete = False
-                    st.session_state.technical_analysis = False
-                    st.session_state.news_and_events = False
-                    st.session_state["1_month"] = False
-                    st.session_state["3_months"] = False
-                    st.session_state["6_months"] = False
-                    st.session_state["1_year"] = False
-                    st.experimental_rerun() 
+                # doc = Document()
+                # doc.add_heading('Stock Analysis Summary', 0)
+                # doc.add_paragraph(plain_text)
+
+                # Save to in-memory buffer
+                # buffer = io.BytesIO()
+                # doc.save(buffer)
+                # buffer.seek(0)
+
+                if "html_output" not in st.session_state:
+                    st.session_state["html_output"] = html_output
+                if "plain_text" not in st.session_state:
+                    st.session_state["plain_text"] = plain_text
+                # if "word_buffer" not in st.session_state:
+                #     st.session_state["word_buffer"] = buffer
+                
+                if st.session_state.get("analysis_complete"):
+
+                    st.download_button(
+                        label="Download as HTML",
+                        data=st.session_state["html_output"],
+                        file_name="stock_analysis_summary.html",
+                        mime="text/html"
+                    )
+
+                    st.download_button(
+                        label="Download as Plain Text",
+                        data=st.session_state["plain_text"],
+                        file_name="stock_analysis_summary.txt",
+                        mime="text/plain"
+                    )
+
+                    #st.download_button(
+                        #label="Download as Word (.docx)",
+                    #     data=st.session_state["word_buffer"],
+                    #     file_name="stock_analysis_summary.docx",
+                    #     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    # )
+
+                    if st.button("Run Another Stock"):
+                        analysis_complete = False
+                        st.session_state.technical_analysis = False
+                        st.session_state.news_and_events = False
+                        st.session_state["1_month"] = False
+                        st.session_state["3_months"] = False
+                        st.session_state["6_months"] = False
+                        st.session_state["1_year"] = False
+                        st.experimental_rerun() 
 
 
 
