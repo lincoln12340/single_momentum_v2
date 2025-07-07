@@ -953,9 +953,9 @@ def generate_investment_analysis(gathered_data):
     formatted = today.strftime('%Y-%m-%d')
 
     
-   system_prompt = """
+    system_prompt = """
     You are an AI model designed to provide technical, fundamental, and news/events-based analysis to deliver actionable, long-term investment insights. Your role is to integrate financial health, competitive positioning, market trends, technical indicators, and relevant news/events into cohesive, data-driven recommendations for strategic, long-term investment strategies.
-    
+
     The user will provide a JSON object containing all the data needed for analysis, including:
     - Ticker: The stock ticker symbol
     - Company: The company name
@@ -965,9 +965,9 @@ def generate_investment_analysis(gathered_data):
     - News data: News summaries for the company and related companies/sectors
     - Results: Technical indicator results (Summary, SMA, RSI, MACD, OBV, ADX)
     - UserSelectedWeights: An object containing the user-selected weights for Technical, Fundamental, and News analyses, with each value between 0 and 1 (all weights sum to 1).
-    
+
     You must parse this JSON data and use it to create a comprehensive investment report formatted STRICTLY as an HTML document.
-    
+
     **Formatting Requirements:**
     - DO NOT USE MARKDOWN OR PLAIN TEXT HEADINGS UNDER ANY CIRCUMSTANCES.
     - DO NOT use Markdown syntax such as #, ##, or bullet points. 
@@ -975,7 +975,7 @@ def generate_investment_analysis(gathered_data):
     - DO NOT output any content outside of the provided HTML template.
     - RESPOND ONLY IN VALID HTML using the provided template, filling all placeholders with the relevant data.
     - **NEWS SOURCES:** In the News and Events Analysis section, for every news item or event, you MUST HYPERLINK the source by making the news title or summary a clickable <a href="URL">link</a>. If multiple sources are mentioned, each must be separately hyperlinked. The same applies to news summaries in any section—always hyperlink sources.
-    
+
     **Key instructions for the Financial Metrics section:**
     - For the 'Key Financial Metrics' section, you MUST ALWAYS display the following metrics as individual metric-cards within a flexbox layout:
         - Revenues
@@ -989,12 +989,12 @@ def generate_investment_analysis(gathered_data):
     - If any value is missing, display "N/A".
     - Each metric must appear as a “metric-card” styled <div> (see CSS below) inside a parent <div class="metrics">, with <div class="metric-title"> for the name and <div class="metric-value"> for the value.
     - You may add additional metric-cards below the required ones if there are more available.
-    
+
     **STRICT INSTRUCTION:**  
     Your response MUST BE A SINGLE VALID HTML DOCUMENT that fully follows the template below. DO NOT output anything in Markdown or plain text before, after, or within the template.
-    
+
     Parse the provided JSON data and use it to replace the placeholders in the HTML template. Make sure to:
-    
+
         1. Extract the Ticker and Company information for the title.
         2. Extract the Timeframe for the timeframe display.
         3. Extract the Technical Analysis summary for the technical analysis section.
@@ -1004,38 +1004,25 @@ def generate_investment_analysis(gathered_data):
         - **CRITICAL:** For every news summary or event, render the news item as a clickable HTML link (using the actual source URL as <a href="URL">[headline or summary]</a>). Never show raw URLs; always use hyperlinks.
         7. Extract the user-selected weightings for each analysis type (e.g., Fundamental, Technical, News/Events). Clearly display these weights in the "User-Selected Analysis Weights" section under Investment Recommendation.
         8. When generating the overall investment recommendation, weigh the influence of each analysis type (Fundamental, Technical, News/Events) according to the user-selected weights. The final recommendation (BUY, HOLD, or SELL) should be determined by a weighted synthesis of these three components, based on their assigned importance. Clearly communicate if the result is driven more by one analysis type due to a higher weighting.
-    
+
     **Recommendation Logic:**
-    
+
     When generating the “Recommendation” (Buy, Hold, Sell), synthesize and weigh the findings from the Technical Analysis, Fundamental Analysis, and News/Events Analysis according to the provided weights.
-    
+
     If one weighting is clearly dominant (e.g., Fundamental Analysis = 0.7), emphasize in the summary and recommendation that the final decision is mainly driven by that analysis type.
-    
+
     The “Integrated Analysis” and “Alignment Assessment” sections should explicitly note which analysis types had the greatest influence on the final recommendation, based on the weights.
-    
+
     **Justification:**
-    
+
     The justification text for the recommendation must refer to the weights. For example:
     “Given the user’s preference to weigh Fundamental Analysis at 60%, the final recommendation relies primarily on the company’s strong balance sheet and valuation ratios, despite short-term volatility in technical indicators.”
-    
+
     **IMPORTANT:**  
     - Return the complete HTML document as your response.  
     - Do not output any Markdown, plain text, or explanation before or after the HTML.  
     - Only output valid HTML using the supplied template and placeholder replacements.
-    
-    **FUNDAMENTAL ANALYSIS STRUCTURE:**  
-    Within the <div id="fundamental-analysis">, ALWAYS structure the output using the following five bolded subheadings, each as a <strong> label, followed by a short, clear paragraph for each:
-    
-    <strong>Business Highlights:</strong> [Summary of major achievements, operations, or developments impacting the business.]
-    <strong>Financial Health:</strong> [Assessment of the balance sheet, key ratios, liquidity, solvency, and overall financial stability.]
-    <strong>Risk Factors:</strong> [Identification and commentary on key risks from filings or market perception.]
-    <strong>Competitive & Industry Position:</strong> [Analysis of market standing, competition, and industry trends.]
-    <strong>Valuation & Investment Case:</strong> [Insight on valuation multiples, growth prospects, and investment rationale.]
-    
-    You MUST follow this order and format for every report.
-    
-    ---
-    
+
     <!DOCTYPE html>
     <html lang="en">
     <head>
@@ -1236,15 +1223,11 @@ def generate_investment_analysis(gathered_data):
                     </span>
                 </div>
             </div>
-    
+
             <div class="section">
                 <h2>Fundamental Analysis</h2>
                 <div id="fundamental-analysis">
-                    <strong>Business Highlights:</strong> [BUSINESS_HIGHLIGHTS_PLACEHOLDER]<br><br>
-                    <strong>Financial Health:</strong> [FINANCIAL_HEALTH_PLACEHOLDER]<br><br>
-                    <strong>Risk Factors:</strong> [RISK_FACTORS_PLACEHOLDER]<br><br>
-                    <strong>Competitive & Industry Position:</strong> [COMPETITIVE_POSITION_PLACEHOLDER]<br><br>
-                    <strong>Valuation & Investment Case:</strong> [VALUATION_INVESTMENT_CASE_PLACEHOLDER]
+                    [FUNDAMENTAL_ANALYSIS_PLACEHOLDER]
                 </div>
                 
                 <h3>Key Financial Metrics</h3>
@@ -1411,7 +1394,7 @@ def generate_investment_analysis(gathered_data):
             </div>
             
             <div class="footnote">""" f"""
-                <p>This investment analysis was generated on {{formatted}}, and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+                <p>This investment analysis was generated on {formatted}, and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
             </div>
         </div>
     </body>
@@ -1431,8 +1414,7 @@ def generate_investment_analysis(gathered_data):
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_message}
-                ],
-                temperature=0.2
+                ]
             )
             
             # Extract the response content
@@ -3263,13 +3245,11 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
         temp_file.write(file_name.read())
 
     system_prompt = """
-    IMPORTANT: DO NOT use markdown formatting under any circumstances. Your output must be in plain text only. This means: do not use markdown headings, bold, italics, bullet points, code blocks, or any other markdown syntax.
-    
     You are an AI assistant specializing in financial analysis and long-term investment insights. Your task is to thoroughly analyze a 10-K or 10-Q filing or similar financial document for a public company, using only the content provided below.
-    
-    Instructions:
+
+    **Instructions:**
     - Do not ask any follow-up questions or request clarifications. Do not prompt the user for any additional input or context. Use only the information in the document provided.
-    - ALWAYS prioritize the following financial metrics in your analysis: revenue, income, sales, debt, liabilities, gross margins, and assets. Ensure these areas are reviewed and reported on first, with maximum detail and supporting data.
+    - **ALWAYS prioritize** the following financial metrics in your analysis: **revenue, income, sales, debt, liabilities, gross margins, and assets**. Ensure these areas are reviewed and reported on first, with maximum detail and supporting data.
     - Analyze the financial information as follows:
         1. Begin your analysis with a focused breakdown of the company's revenue, income, sales, debt, liabilities, gross margins, and assets, referencing all available figures and trends for each. Discuss how these metrics have changed over recent years and what they imply for the company's financial stability, operational performance, and growth prospects.
         2. Review the remaining key financial statements (income statement, balance sheet, cash flow). Assess profitability margins, cash flow trends, and capital expenditures, supplementing your initial breakdown where relevant.
@@ -3278,11 +3258,10 @@ def FUNDAMENTAL_ANALYSIS(file_name, company_name, file):
         5. Evaluate the company’s competitive position, market share, and relevant industry trends (including technological/economic changes) that may affect long-term prospects.
         6. Calculate and interpret financial ratios (P/E, debt-to-equity, ROE, free cash flow yield, etc.) and compare to industry peers where possible.
         7. Provide actionable investment recommendations based solely on the findings, including whether the company is under/overvalued, and any suggested entry/exit points. Emphasize potential returns and risks for long-term investors.
-    
-    Output:
-    Your analysis must be comprehensive, detailed, and data-driven, to the standard of a senior investment analyst. Clearly explain all recommendations and highlight supporting data and metrics. Do NOT output anything outside this analysis. Do NOT use markdown formatting under any circumstances. If you cannot comply, do not produce any output.
-    """
 
+    **Output:**  
+    Your analysis should be comprehensive, detailed, and data-driven, to the standard of a senior investment analyst. Clearly explain all recommendations and highlight supporting data/metrics. Do not output anything outside this analysis or request further information.
+    """
 
 
     # 1. Extract full text
@@ -4092,7 +4071,7 @@ def SUMMARY2(gathered_data):
         </div>
     </body>
     </html>
-        """
+    """
 
     user_message = f"The data to analyse: {json.dumps(gathered_data)}"
     chat_completion = client.chat.completions.create(
