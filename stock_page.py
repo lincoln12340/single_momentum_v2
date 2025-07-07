@@ -820,73 +820,73 @@ def stock_page():
 
 
 
-        if news_and_events and not technical_analysis and not fundamental_analysis:
-            with st.expander("Downloading Data"):
-                update_progress(progress_bar, 30, 30, "Gathering News Data...")    
-                txt_summary = generate_company_news_message(company, timeframe)
-                update_progress(progress_bar, 50, 50, "Analysing News Data...")
-                txt_summary = format_news(txt_summary)
-               
-                    
-            
-            #text = convert_to_raw_text(txt_summary)
-            #text_ovr = convert_to_raw_text(txt_ovr)
-          
-            #st.write(text)
-            #st.write(text_ovr)
-
-            st.session_state["run_analysis_complete"] = True
-
-            gathered_data = {
-                "Ticker": ticker,
-                "Company": company,
-                "Timeframe": timeframe,
-                "News and Events Summary": txt_summary,
-            }
-
-            txt_ovr = txt_conclusion2(gathered_data)
-            html_output_no_fix = clean_html_response(txt_over)
-            html_output = fix_html_with_embedded_markdown(html_output_no_fix)
-            st.components.v1.html(html_output, height=700, scrolling=True)
-
-            soup = BeautifulSoup(html_output, "html.parser")
-            plain_text = soup.get_text(separator='\n')
-
-
-            st.session_state["gathered_data"] = gathered_data
-            st.session_state["analysis_complete"] = True  # Mark analysis as complete
-            st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
-
-            if "html_output" not in st.session_state:
-                st.session_state["html_output"] = html_output
-            if "plain_text" not in st.session_state:
-                st.session_state["plain_text"] = plain_text
-
-            st.download_button(
-                label="Download as HTML",
-                data=text_ovr,
-                file_name="stock_analysis_summary.html",
-                mime="text/html"
-            )
-
-            st.download_button(
-                label="Download as Plain Text",
-                data=st.session_state["plain_text"],
-                file_name="stock_analysis_summary.txt",
-                mime="text/plain"
-            )
-
-            if st.button("Run Another Stock"):
-                    analysis_complete = False
-                    st.session_state.technical_analysis = False
-                    st.session_state.news_and_events = False
-                    st.session_state["1_month"] = False
-                    st.session_state["3_months"] = False
-                    st.session_state["6_months"] = False
-                    st.session_state["1_year"] = False
-                    st.experimental_rerun() 
-
-        if news_and_events and fundamental_analysis and not technical_analysis: 
+            if news_and_events and not technical_analysis and not fundamental_analysis:
+                with st.expander("Downloading Data"):
+                    update_progress(progress_bar, 30, 30, "Gathering News Data...")    
+                    txt_summary = generate_company_news_message(company, timeframe)
+                    update_progress(progress_bar, 50, 50, "Analysing News Data...")
+                    txt_summary = format_news(txt_summary)
+                   
+                        
+                
+                #text = convert_to_raw_text(txt_summary)
+                #text_ovr = convert_to_raw_text(txt_ovr)
+              
+                #st.write(text)
+                #st.write(text_ovr)
+    
+                st.session_state["run_analysis_complete"] = True
+    
+                gathered_data = {
+                    "Ticker": ticker,
+                    "Company": company,
+                    "Timeframe": timeframe,
+                    "News and Events Summary": txt_summary,
+                }
+    
+                txt_ovr = txt_conclusion2(gathered_data)
+                html_output_no_fix = clean_html_response(txt_over)
+                html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+                st.components.v1.html(html_output, height=700, scrolling=True)
+    
+                soup = BeautifulSoup(html_output, "html.parser")
+                plain_text = soup.get_text(separator='\n')
+    
+    
+                st.session_state["gathered_data"] = gathered_data
+                st.session_state["analysis_complete"] = True  # Mark analysis as complete
+                st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
+    
+                if "html_output" not in st.session_state:
+                    st.session_state["html_output"] = html_output
+                if "plain_text" not in st.session_state:
+                    st.session_state["plain_text"] = plain_text
+    
+                st.download_button(
+                    label="Download as HTML",
+                    data=text_ovr,
+                    file_name="stock_analysis_summary.html",
+                    mime="text/html"
+                )
+    
+                st.download_button(
+                    label="Download as Plain Text",
+                    data=st.session_state["plain_text"],
+                    file_name="stock_analysis_summary.txt",
+                    mime="text/plain"
+                )
+    
+                if st.button("Run Another Stock"):
+                        analysis_complete = False
+                        st.session_state.technical_analysis = False
+                        st.session_state.news_and_events = False
+                        st.session_state["1_month"] = False
+                        st.session_state["3_months"] = False
+                        st.session_state["6_months"] = False
+                        st.session_state["1_year"] = False
+                        st.experimental_rerun() 
+    
+            if news_and_events and fundamental_analysis and not technical_analysis:
                 with st.expander("Downloading Data"):
                     update_progress(progress_bar, 25, 25, "Gathering News Data...")    
                     txt_summary = generate_company_news_message(company, timeframe)
@@ -903,14 +903,15 @@ def stock_page():
                     #fa_txt_summary = fa_summary_and_news_summary(fa_summary,txt_ovr)
                     #update_progress(progress_bar, 100, 100, "Analysis Complete...")
                 
-                
-            #text_ovr_t = convert_to_raw_text(fa_txt_summary)
-            #st.write(text_ovr_t)
-
-           
-
+                    
+                    
+                #text_ovr_t = convert_to_raw_text(fa_txt_summary)
+                #st.write(text_ovr_t)
+    
+               
+    
             st.session_state["run_analysis_complete"] = True
-
+    
             gathered_data = {
                 "Ticker": ticker,
                 "Company": company,
@@ -918,29 +919,29 @@ def stock_page():
                 "News and Events Overall": txt_ovr,
                 "Fundamental Analysis": fa_summary
             }
-
+    
             update_progress(progress_bar, 100, 100, "Analysis Complete...")
             fa_txt_summary = fa_summary_and_news_summary(gathered_data)
             html_output_no_fix = clean_html_response(fa_txt_summary)
             html_output = fix_html_with_embedded_markdown(html_output_no_fix)
             st.components.v1.html(html_output, height=700, scrolling=True)
-
+    
             soup = BeautifulSoup(html_output, "html.parser")
             plain_text = soup.get_text(separator='\n')
-
+    
         
-
+    
         
-
+    
             st.session_state["gathered_data"] = gathered_data
             st.session_state["analysis_complete"] = True  # Mark analysis as complete
             st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
-
+    
             if "html_output" not in st.session_state:
                 st.session_state["html_output"] = html_output
             if "plain_text" not in st.session_state:
                 st.session_state["plain_text"] = plain_text
-
+    
             st.download_button(
                 label="Download as HTML",
                 data=text_ovr,
@@ -948,7 +949,7 @@ def stock_page():
                 mime="text/html"
             )
         
-
+    
             st.download_button(
                 label="Download as Plain Text",
                 data=st.session_state["plain_text"],
@@ -967,82 +968,82 @@ def stock_page():
 
                 
 
-        if fundamental_analysis and not technical_analysis and not news_and_events:
-            with st.expander("Downloading Data"): 
-                update_progress(progress_bar, 25, 25, "Analysis Started...")  
-                file_content = uploaded_file
-                file_name = uploaded_file.name
-                update_progress(progress_bar, 50, 50, "Analysing Financial Information...")  
-                fa_summary = FUNDAMENTAL_ANALYSIS2(file_content, company, file_name)
-                update_progress(progress_bar, 100, 100, "Analysing Financial Information...")  
-        
-            #text_fs = convert_to_raw_text(fa_summary)
-            #st.write(text_fs)
-
-           
-
-
-            st.session_state["run_analysis_complete"] = True
-
-            gathered_data = {
-                "Ticker": ticker,
-                "Company": company,
-                "Timeframe": timeframe,
-                "Technical Analysis": technical_analysis,
-                "Fundamental Analysis": fundamental_analysis,
-                "Results": {
-                    "Summary": summary if 'summary' in locals() else "",
-                    "Fundamental Analysis & News": fa_txt_summary if 'fa_txt_summary' in locals() else "",
-                    "SMA Results": sma_result if 'sma_result' in locals() else "",
-                    "RSI Results": rsi_result if 'rsi_result' in locals() else "",
-                    "MACD Results": macd_result if 'macd_result' in locals() else "",
-                    "OBV Results": obv_result if 'obv_result' in locals() else "",
-                    "ADX Results": adx_result if 'adx_result' in locals() else "",
-                    "Fundamental Analysis": fa_summary if 'fa_summary' in locals() else ""
-
-                }
-            }
-
-            update_progress(progress_bar, 100, 100, "Analysis Complete...")
-            html_output_no_fix = clean_html_response(fa_summary)
-            html_output = fix_html_with_embedded_markdown(html_output_no_fix)
-            st.components.v1.html(html_output, height=700, scrolling=True)
-
-            soup = BeautifulSoup(html_output, "html.parser")
-            plain_text = soup.get_text(separator='\n')
+            if fundamental_analysis and not technical_analysis and not news_and_events:
+                with st.expander("Downloading Data"): 
+                    update_progress(progress_bar, 25, 25, "Analysis Started...")  
+                    file_content = uploaded_file
+                    file_name = uploaded_file.name
+                    update_progress(progress_bar, 50, 50, "Analysing Financial Information...")  
+                    fa_summary = FUNDAMENTAL_ANALYSIS2(file_content, company, file_name)
+                    update_progress(progress_bar, 100, 100, "Analysing Financial Information...")  
             
-            st.session_state["gathered_data"] = gathered_data
-            st.session_state["analysis_complete"] = True  # Mark analysis as complete
-            st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
-
-            if "html_output" not in st.session_state:
-                st.session_state["html_output"] = html_output
-            if "plain_text" not in st.session_state:
-                st.session_state["plain_text"] = plain_text
-
-            st.download_button(
-                label="Download as HTML",
-                data=text_ovr,
-                file_name="stock_analysis_summary.html",
-                mime="text/html"
-            )
-
-            st.download_button(
-                label="Download as Plain Text",
-                data=st.session_state["plain_text"],
-                file_name="stock_analysis_summary.txt",
-                mime="text/plain"
-            )
-
-            if st.button("Run Another Stock"):
-                        analysis_complete = False
-                        st.session_state.technical_analysis = False
-                        st.session_state.news_and_events = False
-                        st.session_state["1_month"] = False
-                        st.session_state["3_months"] = False
-                        st.session_state["6_months"] = False
-                        st.session_state["1_year"] = False
-                        st.experimental_rerun() 
+                #text_fs = convert_to_raw_text(fa_summary)
+                #st.write(text_fs)
+    
+               
+    
+    
+                st.session_state["run_analysis_complete"] = True
+    
+                gathered_data = {
+                    "Ticker": ticker,
+                    "Company": company,
+                    "Timeframe": timeframe,
+                    "Technical Analysis": technical_analysis,
+                    "Fundamental Analysis": fundamental_analysis,
+                    "Results": {
+                        "Summary": summary if 'summary' in locals() else "",
+                        "Fundamental Analysis & News": fa_txt_summary if 'fa_txt_summary' in locals() else "",
+                        "SMA Results": sma_result if 'sma_result' in locals() else "",
+                        "RSI Results": rsi_result if 'rsi_result' in locals() else "",
+                        "MACD Results": macd_result if 'macd_result' in locals() else "",
+                        "OBV Results": obv_result if 'obv_result' in locals() else "",
+                        "ADX Results": adx_result if 'adx_result' in locals() else "",
+                        "Fundamental Analysis": fa_summary if 'fa_summary' in locals() else ""
+    
+                    }
+                }
+    
+                update_progress(progress_bar, 100, 100, "Analysis Complete...")
+                html_output_no_fix = clean_html_response(fa_summary)
+                html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+                st.components.v1.html(html_output, height=700, scrolling=True)
+    
+                soup = BeautifulSoup(html_output, "html.parser")
+                plain_text = soup.get_text(separator='\n')
+                
+                st.session_state["gathered_data"] = gathered_data
+                st.session_state["analysis_complete"] = True  # Mark analysis as complete
+                st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
+    
+                if "html_output" not in st.session_state:
+                    st.session_state["html_output"] = html_output
+                if "plain_text" not in st.session_state:
+                    st.session_state["plain_text"] = plain_text
+    
+                st.download_button(
+                    label="Download as HTML",
+                    data=text_ovr,
+                    file_name="stock_analysis_summary.html",
+                    mime="text/html"
+                )
+    
+                st.download_button(
+                    label="Download as Plain Text",
+                    data=st.session_state["plain_text"],
+                    file_name="stock_analysis_summary.txt",
+                    mime="text/plain"
+                )
+    
+                if st.button("Run Another Stock"):
+                            analysis_complete = False
+                            st.session_state.technical_analysis = False
+                            st.session_state.news_and_events = False
+                            st.session_state["1_month"] = False
+                            st.session_state["3_months"] = False
+                            st.session_state["6_months"] = False
+                            st.session_state["1_year"] = False
+                            st.experimental_rerun() 
 
 
 def convert_to_raw_text(text):
