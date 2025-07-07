@@ -350,7 +350,7 @@ def stock_page():
                         "RSI Results": rsi_result if 'rsi_result' in locals() else "",
                         "MACD Results": macd_result if 'macd_result' in locals() else "",
                         "OBV Results": obv_result if 'obv_result' in locals() else "",
-                        "BD Results": bd_result if 'obv_result' in locals() else "",
+                        "BD Results": bd_result if 'bd_result' in locals() else "",
                         "ADX Results": adx_result if 'adx_result' in locals() else ""
                     }
                 }
@@ -401,11 +401,23 @@ def stock_page():
                         st.plotly_chart(fig_adx)
                         st.write(adx_result)  # Display ADX result or interpretation
                 
+                if "html_output" not in st.session_state:
+                    st.session_state["html_output"] = html_output
+                if "plain_text" not in st.session_state:
+                    st.session_state["plain_text"] = plain_text
+    
                 st.download_button(
                     label="Download as HTML",
                     data=text_ovr,
                     file_name="stock_analysis_summary.html",
                     mime="text/html"
+                )
+    
+                st.download_button(
+                    label="Download as Plain Text",
+                    data=st.session_state["plain_text"],
+                    file_name="stock_analysis_summary.txt",
+                    mime="text/plain"
                 )
 
                 if st.button("Run Another Stock"):
@@ -485,7 +497,7 @@ def stock_page():
                         "RSI Results": rsi_result if 'rsi_result' in locals() else "",
                         "MACD Results": macd_result if 'macd_result' in locals() else "",
                         "OBV Results": obv_result if 'obv_result' in locals() else "",
-                        "BD Results": bd_result if 'obv_result' in locals() else "",
+                        "BD Results": bd_result if 'bd_result' in locals() else "",
                         "ADX Results": adx_result if 'adx_result' in locals() else ""
                     }
                 }
@@ -537,11 +549,23 @@ def stock_page():
                         st.plotly_chart(fig_adx)
                         st.write(adx_result)  # Display ADX result or interpretation
                 
+                if "html_output" not in st.session_state:
+                    st.session_state["html_output"] = html_output
+                if "plain_text" not in st.session_state:
+                    st.session_state["plain_text"] = plain_text
+    
                 st.download_button(
                     label="Download as HTML",
                     data=text_ovr,
                     file_name="stock_analysis_summary.html",
                     mime="text/html"
+                )
+    
+                st.download_button(
+                    label="Download as Plain Text",
+                    data=st.session_state["plain_text"],
+                    file_name="stock_analysis_summary.txt",
+                    mime="text/plain"
                 )
 
                 if st.button("Run Another Stock"):
@@ -609,6 +633,7 @@ def stock_page():
                         "MACD Results": macd_result if 'macd_result' in locals() else "",
                         "OBV Results": obv_result if 'obv_result' in locals() else "",
                         "ADX Results": adx_result if 'adx_result' in locals() else "",
+                        "BD Results": bd_result if 'bd_result' in locals() else "",
                         "Fundamental Analysis": fa_summary if 'fa_summary' in locals() else ""
                     }
                 }
@@ -622,11 +647,23 @@ def stock_page():
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
                 st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
 
+                if "html_output" not in st.session_state:
+                    st.session_state["html_output"] = html_output
+                if "plain_text" not in st.session_state:
+                    st.session_state["plain_text"] = plain_text
+    
                 st.download_button(
                     label="Download as HTML",
                     data=text_ovr,
                     file_name="stock_analysis_summary.html",
                     mime="text/html"
+                )
+    
+                st.download_button(
+                    label="Download as Plain Text",
+                    data=st.session_state["plain_text"],
+                    file_name="stock_analysis_summary.txt",
+                    mime="text/plain"
                 )
 
                 if st.button("Run Another Stock"):
@@ -703,6 +740,7 @@ def stock_page():
                         "MACD Results": macd_result if 'macd_result' in locals() else "",
                         "OBV Results": obv_result if 'obv_result' in locals() else "",
                         "ADX Results": adx_result if 'adx_result' in locals() else "",
+                        "BD Results": bd_result if 'bd_result' in locals() else "",
                     }
                 }
 
@@ -805,11 +843,23 @@ def stock_page():
             st.session_state["analysis_complete"] = True  # Mark analysis as complete
             st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
 
+            if "html_output" not in st.session_state:
+                st.session_state["html_output"] = html_output
+            if "plain_text" not in st.session_state:
+                st.session_state["plain_text"] = plain_text
+
             st.download_button(
                 label="Download as HTML",
                 data=text_ovr,
                 file_name="stock_analysis_summary.html",
                 mime="text/html"
+            )
+
+            st.download_button(
+                label="Download as Plain Text",
+                data=st.session_state["plain_text"],
+                file_name="stock_analysis_summary.txt",
+                mime="text/plain"
             )
 
             if st.button("Run Another Stock"):
@@ -865,13 +915,24 @@ def stock_page():
                 st.session_state["analysis_complete"] = True  # Mark analysis as complete
                 st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
 
+                if "html_output" not in st.session_state:
+                    st.session_state["html_output"] = html_output
+                if "plain_text" not in st.session_state:
+                    st.session_state["plain_text"] = plain_text
+    
                 st.download_button(
                     label="Download as HTML",
                     data=text_ovr,
                     file_name="stock_analysis_summary.html",
                     mime="text/html"
                 )
-
+    
+                st.download_button(
+                    label="Download as Plain Text",
+                    data=st.session_state["plain_text"],
+                    file_name="stock_analysis_summary.txt",
+                    mime="text/plain"
+                )                
                 if st.button("Run Another Stock"):
                     analysis_complete = False
                     st.session_state.technical_analysis = False
@@ -924,11 +985,23 @@ def stock_page():
             st.session_state["analysis_complete"] = True  # Mark analysis as complete
             st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
 
+            if "html_output" not in st.session_state:
+                st.session_state["html_output"] = html_output
+            if "plain_text" not in st.session_state:
+                st.session_state["plain_text"] = plain_text
+
             st.download_button(
                 label="Download as HTML",
                 data=text_ovr,
                 file_name="stock_analysis_summary.html",
                 mime="text/html"
+            )
+
+            st.download_button(
+                label="Download as Plain Text",
+                data=st.session_state["plain_text"],
+                file_name="stock_analysis_summary.txt",
+                mime="text/plain"
             )
 
             if st.button("Run Another Stock"):
