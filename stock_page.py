@@ -186,19 +186,42 @@ def stock_page():
                 "Fundamental": 0.33,
                 "News": 0.34
             }
-            tech_weight = st.slider("Technical Analysis Weight", 0.0, 1.0, default_weights["Technical"])
-            fund_weight = st.slider("Fundamental Analysis Weight", 0.0, 1.0, default_weights["Fundamental"])
-            news_weight = st.slider("News Analysis Weight", 0.0, 1.0, default_weights["News"])
-            total = tech_weight + fund_weight + news_weight
-            # Normalize to sum to 1
-            if total > 0:
-                tech_weight /= total
-                fund_weight /= total
-                news_weight /= total
+            if technical_analysis:
+                weights["Technical"] = st.slider(
+                    "Technical Analysis Weight", 0.0, 1.0, default_weights["Technical"])
+                total += weights["Technical"]
             else:
-                tech_weight = fund_weight = news_weight = 1/3
+                weights["Technical"] = 0.0
+
+            if fundamental_analysis:
+                weights["Fundamental"] = st.slider(
+                    "Fundamental Analysis Weight", 0.0, 1.0, default_weights["Fundamental"])
+                total += weights["Fundamental"]
+            else:
+                weights["Fundamental"] = 0.0
+
+            if news_and_events:
+                weights["News"] = st.slider(
+                    "News Analysis Weight", 0.0, 1.0, default_weights["News"])
+                total += weights["News"]
+            else:
+                weights["News"] = 0.0
+
+            # Normalize only the selected weights to sum to 1
+            if total > 0:
+                for key in weights:
+                    weights[key] = weights[key] / total if weights[key] > 0 else 0.0
+            else:
+                # If for some reason total is zero, split equally between selected
+                selected_keys = [k for k, v in weights.items() if v > 0]
+                for key in weights:
+                    weights[key] = 1.0 / len(selected_keys) if key in selected_keys else 0.0
+
+            tech_weight = weights["Technical"]
+            fund_weight = weights["Fundamental"]
+            news_weight = weights["News"]
         else:
-            # If only one is selected, set weights accordingly
+            # Only one selected: set that weight to 1, rest to 0
             tech_weight = 1.0 if technical_analysis else 0.0
             fund_weight = 1.0 if fundamental_analysis else 0.0
             news_weight = 1.0 if news_and_events else 0.0
