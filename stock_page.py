@@ -4195,6 +4195,10 @@ def SUMMARY2(gathered_data):
                     <h4>ADX (Average Directional Index)</h4>
                     <p>[ADX_ANALYSIS_PLACEHOLDER]</p>
                 </div>
+                <div class="indicator">
+                    <h4>BD (Bollinger Bands)</h4>
+                    <p>[ADX_ANALYSIS_PLACEHOLDER]</p>
+                </div>
             </section>
 
             <section class="section">
