@@ -13,7 +13,7 @@ import json
 from pydantic import BaseModel
 import os 
 import re
-import anthropic
+
 #from dotenv import load_dotenv
 #from curl_cffi import requests as curl_requests
 from datetime import datetime, timedelta,date
@@ -222,6 +222,7 @@ def stock_page():
             fund_weight = weights["Fundamental"]
             news_weight = weights["News"]
         else:
+
             tech_weight = 1.0 if technical_analysis else 0.0
             fund_weight = 1.0 if fundamental_analysis else 0.0
             news_weight = 1.0 if news_and_events else 0.0
@@ -234,6 +235,7 @@ def stock_page():
     # --- MAIN PANEL ---
     st.title("Stock Market Analysis with AI-Powered Insights")
     st.markdown("**Gain actionable insights into stock trends with advanced indicators and AI interpretations.**")
+
     progress_bar = st.progress(0)
     status_text = st.empty()
 
@@ -244,11 +246,15 @@ def stock_page():
             progress_bar.progress(30)
     
             data = fetch_alpha_vantage_data(ticker, timeframe)
+
             if data is not None:
                 progress_bar.progress(100)
                 status_text.text("Data loaded successfully.")
+
+
             else:
                 progress_bar.progress(0)
+
         except Exception as e:
             st.error(f"Error in analysis pipeline: {e}")
             progress_bar.progress(0)
@@ -396,7 +402,7 @@ def stock_page():
         elif technical_analysis and news_and_events:
             with st.expander("Downloading Data... Click to View Progress"):
                 update_progress(progress_bar, 15, 15, "Analyzing Technicals...")
-                results, recent_data, availability, score, weighted_score = calculate_technical_indicators(data, ticker, weight_choice=weight_choice)
+                results, recent_data, availability,weighted_score = calculate_technical_indicators(data, ticker, weight_choice=weight_choice)
                 bd_result = results["bd_result"]
                 sma_result = results["sma_result"]
                 rsi_result = results["rsi_result"]
@@ -505,7 +511,7 @@ def stock_page():
         elif technical_analysis:
             with st.expander("Downloading Data... Click to View Progress"):
                 update_progress(progress_bar, 50, 50, "Analyzing...")
-                results, recent_data, availability, score, weighted_score = calculate_technical_indicators(data, ticker, weight_choice=weight_choice)
+                results, recent_data, availability, weighted_score = calculate_technical_indicators(data, ticker, weight_choice=weight_choice)
                 bd_result = results["bd_result"]
                 sma_result = results["sma_result"]
                 rsi_result = results["rsi_result"]
@@ -518,6 +524,7 @@ def stock_page():
                 "Timeframe": timeframe,
                 "data": recent_data.to_dict(orient="records"),
                 "Position_type": weight_choice,
+                "weighted_score": weighted_score,
                 "Results": {
                     "SMA Results": sma_result,
                     "RSI Results": rsi_result,
@@ -533,6 +540,7 @@ def stock_page():
             st.components.v1.html(html_output, height=700, scrolling=True)
             soup = BeautifulSoup(html_output, "html.parser")
             plain_text = soup.get_text(separator='\n')
+            #print(gathered_data)
             st.session_state["gathered_data"] = gathered_data
             st.session_state["analysis_complete"] = True
             st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
@@ -3565,37 +3573,65 @@ def SUMMARY2(gathered_data):
     today = date.today()
     formatted = today.strftime('%Y-%m-%d')
 
+    weighted_score = gathered_data.get("weighted_score")
+    print("weighted_score =", float(weighted_score))
 
-    system_prompt = """ As an AI assistant dedicated to supporting traders and investors, your task is to produce a structured, detailed technical market analysis in valid HTML format.
-    The user will provide a JSON object containing all the data needed for technical analysis, including:
-    - Ticker: The stock ticker symbol
-    - Company: The company name
-    - Timeframe: The analysis timeframe
-    - Technical Analysis: Summary of technical analysis
-    - Results: Technical indicator results (Summary, SMA, RSI, MACD, OBV, ADX)
+    # --- New momentum logic ---
+    if weighted_score > 0.05:
+        momentum = "Upward"
+        momentum_class = "buy"  # reuse the style, or create new CSS
+    elif weighted_score < -0.05:
+        momentum = "Downward"
+        momentum_class = "sell"
+    else:
+        momentum = "Neutral"
+        momentum_class = "hold"
 
-    You must parse this JSON data and use it to create a comprehensive technical investment report formatted as HTML.
 
-    **Instructions:**
-    - Parse the provided JSON data and use it to replace the placeholders in the HTML template below.
-    - Extract the Ticker and Company information for the title.
-    - Extract the Timeframe for the timeframe display.
-    - Extract the Technical Analysis summary for the technical analysis section.
-    - Extract Technical indicator results (SMA, RSI, MACD, OBV, ADX) for their dedicated sections.
-    - Generate a clear, actionable recommendation (BUY, HOLD, or SELL) strictly based on technical signals and patterns. Justify the recommendation in clear language, citing which technical factors are most important.
-    - Return the complete HTML document as your response. Do not include any Markdown or plaintext. Do not leave out any required section, even if some are brief or data is missing.
+    system_prompt = f"""As an AI assistant for traders and investors, your task is to produce a structured technical market analysis in valid HTML format.
 
-    Your output must use <section>, <h2>, <h3>, <ul>, <li>, <table>, and <p> tags as appropriate. Use <strong> for key points.
-    Follow this professional HTML template exactly, replacing the placeholders with values parsed from the provided JSON:
+    Parse the provided JSON, replacing these placeholders:
+    - Ticker, Company, Timeframe, Technical Analysis summary, and Technical Indicator summaries.
+    - Instead of an investment recommendation, show only the current **momentum** as Upward, Downward, or Neutral, based solely on the weighted technical score.
+
+    **Special Instructions:**  
+    - The analysis and all technical indicator values must be grouped by weeks. Clearly highlight which week(s) or date range are used for the analysis.
+    - In the Executive Summary section, include a visible note stating:
+        1. The analysis is grouped by weeks using the most recent available data.
+        2. Which weeks or date range the analysis covers (e.g. "Week of 2025-06-03 to 2025-07-21").
+        3. The technical momentum and indicators reflect weekly trends to filter out short-term noise.
+    - In the "Technical Analysis" section, provide only a concise and detailed summary of the technical analysis. Do not include charts, extended commentary, or breakdowns—just main insights in a few sentences.
+
+    **Indicator Formatting Instructions:**  
+    For **each Technical Indicator** (SMA, RSI, MACD, OBV, ADX, Bollinger Bands), use this structure for the text:
+    1. State the date(s) or week(s) the analysis covers.
+    2. Clearly present the most recent indicator values (e.g., “As of July 27, 2025, the 20-day SMA is $208.67, the 50-day SMA is $205.01, and the closing price is $214.40”).
+    3. Use bullet points or numbered lists to highlight:
+        - Position of the price relative to indicator(s)
+        - Trend/crossover events
+        - Any significant market moves, shifts, or signals
+        - A concise summary/conclusion (bold or strong tag) at the end of each indicator’s section
+
+    **Example (for SMA):**
+    <ol>
+    <li><strong>Current Position:</strong> As of July 27, 2025, the closing price ($214.40) is above both the 20-day SMA ($208.67) and 50-day SMA ($205.01).</li>
+    <li><strong>Trend Analysis:</strong> Both SMAs are rising, indicating a strong uptrend.</li>
+    <li><strong>SMA Crossover:</strong> The 20-day SMA is above the 50-day, signaling continued bullish momentum.</li>
+    <li><strong>Summary:</strong> <b>AAPL is in a robust uptrend; further gains are possible unless resistance emerges.</b></li>
+    </ol>
+
+    Repeat this clear, analytic, bullet/numbered style for each indicator (SMA, RSI, MACD, OBV, ADX, BD/Bollinger Bands), always referencing the latest weekly values and their implications for trend, strength, or reversals.
+
+    Your output must use the following HTML structure and tags, omitting any references to BUY/HOLD/SELL:
 
     <!DOCTYPE html>
     <html lang="en">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Technical Investment Analysis</title>
+        <title>Technical Momentum Analysis</title>
         <style>
-            body {
+            body {{
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 line-height: 1.6;
                 color: #333;
@@ -3603,21 +3639,21 @@ def SUMMARY2(gathered_data):
                 margin: 0 auto;
                 padding: 0px;
                 background-color: transparent;
-            }
-            .container {
+            }}
+            .container {{
                 background-color: #fff;
                 border-radius: 8px;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.1);
                 padding: 30px;
                 margin-bottom: 30px;
-            }
-            h1 {
+            }}
+            h1 {{
                 color: #2c3e50;
                 border-bottom: 3px solid #3498db;
                 padding-bottom: 10px;
                 margin-top: 0;
-            }
-            h2 {
+            }}
+            h2 {{
                 color: #2c3e50;
                 border-left: 5px solid #3498db;
                 padding-left: 15px;
@@ -3625,62 +3661,51 @@ def SUMMARY2(gathered_data):
                 background-color: #f8f9fa;
                 padding: 10px 15px;
                 border-radius: 0 5px 5px 0;
-            }
-            h3 {
+            }}
+            h3 {{
                 color: #2c3e50;
                 margin-top: 20px;
                 border-bottom: 1px dashed #ddd;
                 padding-bottom: 5px;
-            }
-            .section {
+            }}
+            .section {{
                 margin-bottom: 30px;
                 padding: 20px;
                 background-color: #f9f9f9;
                 border-radius: 5px;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-            }
-            .recommendation {
+            }}
+            .momentum {{
                 font-weight: bold;
                 font-size: 1.1em;
                 padding: 15px;
                 margin: 15px 0;
                 border-radius: 5px;
                 text-align: center;
-            }
-            .buy {
+            }}
+            .buy {{
                 background-color: #d4edda;
                 color: #155724;
                 border: 1px solid #c3e6cb;
-            }
-            .hold {
+            }}
+            .hold {{
                 background-color: #fff3cd;
                 color: #856404;
                 border: 1px solid #ffeeba;
-            }
-            .sell {
+            }}
+            .sell {{
                 background-color: #f8d7da;
                 color: #721c24;
                 border: 1px solid #f5c6cb;
-            }
-            .indicator {
-                margin-bottom: 20px;
-                padding: 15px;
-                border-radius: 5px;
-                background-color: #f8f9fa;
-                border-left: 4px solid #3498db;
-            }
-            .indicator h4 {
-                margin-top: 0;
-                color: #2980b9;
-            }
-            .summary-box {
+            }}
+            .summary-box {{
                 background-color: #e8f4fd;
                 border-left: 4px solid #3498db;
                 padding: 15px;
                 margin: 20px 0;
                 border-radius: 0 5px 5px 0;
-            }
-            .timeframe {
+            }}
+            .timeframe {{
                 font-weight: bold;
                 color: #2c3e50;
                 background-color: #e8f4fd;
@@ -3688,87 +3713,141 @@ def SUMMARY2(gathered_data):
                 border-radius: 3px;
                 display: inline-block;
                 margin-bottom: 15px;
-            }
-            .footnote {
+            }}
+            .indicator {{
+                margin-bottom: 20px;
+                padding: 15px;
+                border-radius: 5px;
+                background-color: #f8f9fa;
+                border-left: 4px solid #3498db;
+            }}
+            .indicator h4 {{
+                margin-top: 0;
+                color: #2980b9;
+            }}
+            .footnote {{
                 font-size: 0.9em;
                 font-style: italic;
                 color: #6c757d;
                 margin-top: 30px;
                 padding-top: 15px;
                 border-top: 1px solid #dee2e6;
-            }
-            .highlight {
+            }}
+            .highlight {{
                 background-color: #ffeaa7;
-                padding: 2px 4px;
-                border-radius: 3px;
-            }
+                padding: 8px 12px;
+                border-radius: 5px;
+                display: block;
+                margin: 15px 0 0 0;
+                font-size: 1em;
+            }}
+            /* Responsive Design */
+            @media (max-width: 768px) {{
+                .container {{
+                    padding: 10px;
+                }}
+                h1, h2 {{
+                    font-size: 1.3em;
+                    padding-left: 8px;
+                    padding-right: 8px;
+                }}
+                .section {{
+                    padding: 10px;
+                }}
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin: 16px 0;
+            }}
+            th, td {{
+                border: 1px solid #ddd;
+                padding: 8px;
+                text-align: left;
+            }}
+            th {{
+                background-color: #f8f9fa;
+                color: #2c3e50;
+            }}
+            tr:nth-child(even) {{
+                background-color: #f2f2f2;
+            }}
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>Technical Investment Analysis: [TICKER_PLACEHOLDER] - [COMPANY_PLACEHOLDER]</h1>
+            <h1>Technical Momentum Analysis: [TICKER_PLACEHOLDER] - [COMPANY_PLACEHOLDER]</h1>
             <div class="timeframe">Analysis Timeframe: [TIMEFRAME_PLACEHOLDER]</div>
-            
+
             <section class="section">
                 <h2>Executive Summary</h2>
                 <div class="summary-box">
                     <p>[SUMMARY_PLACEHOLDER]</p>
+                    <div class="highlight">
+                        <em>
+                            Note: This analysis is grouped by weeks, using the most recent available weekly data.<br>
+                            <strong>Weeks Analyzed:</strong> [WEEK_RANGE_PLACEHOLDER]<br>
+                            The technical momentum and indicators reflect weekly trends, offering a clearer view of medium-term market movements and filtering out short-term fluctuations.
+                        </em>
+                    </div>
                 </div>
-                <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
-                    RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
+                <div class="momentum {momentum_class}">
+                    <strong>Momentum:</strong> {momentum}
                 </div>
             </section>
 
             <section class="section">
                 <h2>Technical Analysis</h2>
                 <div id="technical-analysis">
-                    [TECHNICAL_ANALYSIS_PLACEHOLDER]
+                    [TECHNICAL_ANALYSIS_SUMMARY_PLACEHOLDER]
                 </div>
                 <h3>Technical Indicators</h3>
                 <div class="indicator">
                     <h4>SMA (Simple Moving Average)</h4>
-                    <p>[SMA_ANALYSIS_PLACEHOLDER]</p>
+                    <ol>
+                        [SMA_ANALYSIS_PLACEHOLDER]
+                    </ol>
                 </div>
                 <div class="indicator">
                     <h4>RSI (Relative Strength Index)</h4>
-                    <p>[RSI_ANALYSIS_PLACEHOLDER]</p>
+                    <ol>
+                        [RSI_ANALYSIS_PLACEHOLDER]
+                    </ol>
                 </div>
                 <div class="indicator">
                     <h4>MACD (Moving Average Convergence Divergence)</h4>
-                    <p>[MACD_ANALYSIS_PLACEHOLDER]</p>
+                    <ol>
+                        [MACD_ANALYSIS_PLACEHOLDER]
+                    </ol>
                 </div>
                 <div class="indicator">
                     <h4>OBV (On-Balance Volume)</h4>
-                    <p>[OBV_ANALYSIS_PLACEHOLDER]</p>
+                    <ol>
+                        [OBV_ANALYSIS_PLACEHOLDER]
+                    </ol>
                 </div>
                 <div class="indicator">
                     <h4>ADX (Average Directional Index)</h4>
-                    <p>[ADX_ANALYSIS_PLACEHOLDER]</p>
+                    <ol>
+                        [ADX_ANALYSIS_PLACEHOLDER]
+                    </ol>
                 </div>
                 <div class="indicator">
                     <h4>BD (Bollinger Bands)</h4>
-                    <p>[ADX_ANALYSIS_PLACEHOLDER]</p>
+                    <ol>
+                        [BD_ANALYSIS_PLACEHOLDER]
+                    </ol>
                 </div>
             </section>
 
-            <section class="section">
-                <h2>Integrated Analysis & Investment Recommendation</h2>
-                <p>[INTEGRATED_ANALYSIS_PLACEHOLDER]</p>
-                <div class="summary-box">
-                    <p><strong>Recommendation:</strong> [DETAILED_RECOMMENDATION_PLACEHOLDER]</p>
-                    <p><strong>Entry Points:</strong> [ENTRY_POINTS_PLACEHOLDER]</p>
-                    <p><strong>Exit Strategy:</strong> [EXIT_STRATEGY_PLACEHOLDER]</p>
-                    <p><strong>Risk Management:</strong> [RISK_MANAGEMENT_PLACEHOLDER]</p>
-                </div>
-            </section>
-
-            <div class="footnote"> """ f"""
-                <p>This investment analysis was generated on {formatted}, and incorporates available data as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            <div class="footnote">
+                <p>This technical momentum analysis was generated on {formatted}, using available market data as of this date. For investing, always consider multiple sources and your personal risk tolerance.</p>
             </div>
         </div>
     </body>
     </html>
     """
+
 
     user_message = f"The data to analyse: {json.dumps(gathered_data)}"
     chat_completion = client.chat.completions.create(
@@ -3976,28 +4055,66 @@ def calculate_technical_indicators(data, ticker, weight_choice=None):
         "bbands_available": bbands_available
     }
 
-    # --- SCORING SECTION (replace these with your real logic!) ---
-    last = recent_data.iloc[-1]  # Last row (most recent week)
-    scores = {}
+    indicator_scores = {k: [] for k in weights}
 
-    # Simple scoring logic (customize as needed)
-    # Bullish (+1), Bearish (-1), Neutral (0)
-    scores['sma'] = 1 if sma_available and last['Close'] > last['SMA_20'] else -1 if sma_available else 0
-    scores['rsi'] = 1 if rsi_available and last['RSI'] > 55 else -1 if rsi_available and last['RSI'] < 45 else 0
-    scores['macd'] = 1 if macd_available and last['MACD'] > last['MACD_signal'] else -1 if macd_available else 0
-    scores['obv'] = 1 if obv_available and last['OBV'] > 0 else -1 if obv_available and last['OBV'] < 0 else 0
-    scores['adx'] = 1 if adx_available and last['ADX'] > 20 else -1 if adx_available and last['ADX'] < 20 else 0
-    scores['bbands'] = 1 if bbands_available and last['Close'] > last['middle_band'] else -1 if bbands_available else 0
+    for _, week in data.iterrows():
+    # SMA
+        if availability['sma_available'] and pd.notna(week['Close']) and pd.notna(week['SMA_20']):
+            score = 1 if week['Close'] > week['SMA_20'] else -1
+            indicator_scores['sma'].append(score)
+        # RSI
+        if availability['rsi_available'] and pd.notna(week['RSI']):
+            if week['RSI'] > 55:
+                score = 1
+            elif week['RSI'] < 45:
+                score = -1
+            else:
+                score = 0
+            indicator_scores['rsi'].append(score)
+        # MACD
+        if availability['macd_available'] and pd.notna(week['MACD']) and pd.notna(week['MACD_signal']):
+            score = 1 if week['MACD'] > week['MACD_signal'] else -1
+            indicator_scores['macd'].append(score)
+        # OBV
+        if availability['obv_available'] and pd.notna(week['OBV']):
+            if week['OBV'] > 0:
+                score = 1
+            elif week['OBV'] < 0:
+                score = -1
+            else:
+                score = 0
+            indicator_scores['obv'].append(score)
+        # ADX
+        if availability['adx_available'] and pd.notna(week['ADX']):
+            score = 1 if week['ADX'] > 20 else -1
+            indicator_scores['adx'].append(score)
+        # BBands
+        if availability['bbands_available'] and pd.notna(week['Close']) and pd.notna(week['middle_band']):
+            score = 1 if week['Close'] > week['middle_band'] else -1
+            indicator_scores['bbands'].append(score)
 
-    # --- Weighted score ---
-    total_weight = sum([weights.get(k, 0) for k in scores if availability.get(f"{k}_available", False)])
-    weighted_score = sum(
-        scores[k] * weights.get(k, 0)
-        for k in scores if availability.get(f"{k}_available", False)
-    ) / total_weight if total_weight > 0 else 0
+    # Aggregate: take the mean (average) score for each indicator
+    import numpy as np
+    final_scores = {}
+    for k in indicator_scores:
+        if indicator_scores[k]:  # If there are scores for that indicator
+            final_scores[k] = np.mean(indicator_scores[k])
+        else:
+            final_scores[k] = 0
+
+    # Now calculate weighted score as before, but using averages over weeks
+    total_weight = sum(weights[k] for k in final_scores if availability.get(f"{k}_available", False))
+    weighted_score = (
+        sum(final_scores[k] * weights[k] for k in final_scores if availability.get(f"{k}_available", False)) / total_weight
+        if total_weight > 0 else 0
+    )
+
+    print("Final Indicator Averages:", final_scores)
+    print("Weighted Score:", weighted_score)
+    
 
     # --- RETURN everything ---
-    return results, recent_data, availability, scores, weighted_score
+    return results, recent_data, availability, weighted_score
 
 
 
