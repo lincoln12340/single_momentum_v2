@@ -537,6 +537,7 @@ def stock_page():
             summary = SUMMARY2(gathered_data)
             html_output_no_fix = clean_html_response(summary)
             html_output = fix_html_with_embedded_markdown(html_output_no_fix)
+            update_progress(progress_bar, 100, 100, "Finished...")
             st.components.v1.html(html_output, height=700, scrolling=True)
             soup = BeautifulSoup(html_output, "html.parser")
             plain_text = soup.get_text(separator='\n')
