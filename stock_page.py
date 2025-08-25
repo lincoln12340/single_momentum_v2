@@ -25,7 +25,6 @@ import markdown2
 from bs4 import BeautifulSoup
 import io
 #from docx import Document
-from apify_client import ApifyClient
 from datetime import date
 import re
 import calendar
