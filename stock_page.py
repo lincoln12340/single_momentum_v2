@@ -3,9 +3,9 @@ import pandas_ta as ta
 from openai import OpenAI
 import time
 import requests
-import gspread
+#import gspread
 from alpha_vantage.timeseries import TimeSeries
-from oauth2client.service_account import ServiceAccountCredentials
+#from oauth2client.service_account import ServiceAccountCredentials
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import tempfile
@@ -24,10 +24,306 @@ import pdfplumber
 import markdown2
 from bs4 import BeautifulSoup
 import io
-from docx import Document
+#from docx import Document
+from apify_client import ApifyClient
+from datetime import date
+import re
+import calendar
+from datetime import datetime, timedelta, timezone
+from news_analysis import get_news_sentiment_gathered_data
+from news_html import system_prompt_html
+from twitter_html import twitter_system_prompt
+from twitter_analysis import analyze_company_tweets
 
 
+def extract_json(raw_text):
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw_text, re.DOTALL)
+    return match.group(1) if match else raw_text.strip()
 
+def analyze_sentiment(tweet_text, company_name):
+    system_prompt = """
+    You are a financial tweet sentiment analysis expert.
+    Given a tweet related to a company, your task is to analyze the overall sentiment (Positive, Negative, or Neutral) as it relates to the company's outlook, performance, or investor perception.
+
+    Instructions:
+    - Read the tweet carefully.
+    - If the tweet expresses improvement, optimism, bullishness, or strong performance for the company, return "Positive".
+    - If the tweet expresses problems, pessimism, bearishness, negative analyst opinions, or weak performance, return "Negative".
+    - If the tweet is neutral, balanced, unclear, or promotional without impact on perception, return "Neutral".
+    - Output ONLY valid JSON. Do not include markdown, code fences, or extra commentary.
+
+    Output:
+    Return ONLY a valid JSON object with these keys:
+    - sentiment: [Positive or Negative or Neutral]
+    - reason: [A short, concise reason for your sentiment decision]
+    """
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Company: {company_name}\nContent: {tweet_text}"}
+            ]
+        )
+        raw_output = response.choices[0].message.content
+        json_output = extract_json(raw_output)
+        sentiment_data = json.loads(json_output)
+        return sentiment_data.get("sentiment", "Neutral"), sentiment_data.get("reason", "N/A")
+    except Exception as e:
+        print(f"Sentiment analysis failed: {e}")
+        return "Error", str(e)
+
+
+def _parse_dt(dt_val):
+    """Parse ISO/RFC strings or epoch (sec/ms) to aware UTC datetime."""
+    if isinstance(dt_val, (int, float)):
+        if dt_val > 1e12:  # ms -> sec
+            dt_val = dt_val / 1000.0
+        return datetime.fromtimestamp(dt_val, tz=timezone.utc)
+
+    if isinstance(dt_val, str):
+        # Add Twitter/X 'created_at' formats first
+        for fmt in (
+            "%a %b %d %H:%M:%S %z %Y",  # e.g. Sun Aug 10 17:58:05 +0000 2025
+            "%a %b %d %H:%M:%S %Z %Y",  # sometimes %Z appears
+            "%Y-%m-%dT%H:%M:%S.%fZ",
+            "%Y-%m-%dT%H:%M:%SZ",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d",
+        ):
+            try:
+                dt = datetime.strptime(dt_val, fmt)
+                # Ensure UTC awareness
+                return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+        # Fallback: ISO with 'Z' or offset
+        try:
+            dt = datetime.fromisoformat(dt_val.replace("Z", "+00:00"))
+            return dt.astimezone(timezone.utc) if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+
+    # Last-resort fallback: now (avoid if possible)
+    return datetime.now(timezone.utc)
+
+def _week_start(d: datetime) -> datetime:
+    """Return Monday 00:00:00 UTC of the week containing d."""
+    d = d.astimezone(timezone.utc)
+    return (d - timedelta(days=d.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _subtract_months(d, months):
+    y, m = d.year, d.month
+    m -= months
+    while m <= 0:
+        m += 12
+        y -= 1
+    day = min(d.day, calendar.monthrange(y, m)[1])
+    return d.replace(year=y, month=m, day=day)
+
+def _subtract_years(d, years):
+    y = d.year - years
+    m = d.month
+    day = min(d.day, calendar.monthrange(y, m)[1])
+    return d.replace(year=y, month=m, day=day)
+
+def _resolve_date_range(period):
+    today = date.today()
+    end = today
+
+    if isinstance(period, str):
+        m = re.match(r'^\s*(\d+)\s*([dmy])\s*$', period.lower())
+        if not m:
+            raise ValueError("time_period must look like '7d', '3m', or '1y' (or pass a dict).")
+        n = int(m.group(1))
+        unit = m.group(2)
+        if unit == 'd':
+            start = date.fromordinal(today.toordinal() - n)
+        elif unit == 'm':
+            start = _subtract_months(today, n)
+        else:  # 'y'
+            start = _subtract_years(today, n)
+    elif isinstance(period, dict):
+        start = today
+        if 'days' in period:
+            start = date.fromordinal(start.toordinal() - int(period['days']))
+        if 'months' in period:
+            start = _subtract_months(start, int(period['months']))
+        if 'years' in period:
+            start = _subtract_years(start, int(period['years']))
+    else:
+        raise ValueError("time_period must be a string like '7d'/'3m'/'1y' or a dict.")
+
+    return (start.isoformat(), end.isoformat())
+
+def _build_search_terms_for_ticker(ticker: str):
+    t = ticker.strip().upper()
+    return [
+        f"${t}",
+        f"\"{t}\" stock",
+        f"{t} price",
+        f"($${t}) (up OR down OR buy OR sell OR earnings OR guidance)"
+    ]
+
+def fetch_ticker_tweets(
+    token: str,
+    ticker: str,
+    time_period,
+    *,
+    actor_id: str = "mpS4GhoarZWx8LMzZ",
+    max_items: int = 200,
+    sort: str = "Latest",
+    tweet_language: str = "en",
+    twitter_handles=None,
+    start_urls=None,
+    sentiment_max: int = 120,   # cap for cost/latency
+):
+    if not token:
+        raise ValueError("Missing Apify API token.")
+    if not ticker:
+        raise ValueError("Missing ticker.")
+
+    start, end = _resolve_date_range(time_period)
+    client_apify = ApifyClient(token)
+
+    run_input = {
+        "startUrls": start_urls or [],
+        "searchTerms": [ticker],
+        "twitterHandles": twitter_handles or [],
+        "maxItems": max_items,
+        "sort": sort,
+        "tweetLanguage": tweet_language,
+        "start": start,
+        "end": end,
+        "customMapFunction": "(object) => ({ ...object })",
+    }
+
+    # --- Run actor 3x and pick dataset with highest len(items) ---
+    runs = []
+    for _ in range(3):
+        run = client_apify.actor(actor_id).call(run_input=run_input)
+        ds_id = run["defaultDatasetId"]
+        items = list(client_apify.dataset(ds_id).iterate_items())
+        runs.append({"dataset_id": ds_id, "items": items})
+
+    best_run = max(runs, key=lambda r: len(r["items"]))
+    raw_items = best_run["items"]
+    selected_dataset_id = best_run["dataset_id"]
+    all_run_dataset_ids = [r["dataset_id"] for r in runs]
+
+    # ---- Normalize ----
+    normalized = []
+    for t in raw_items:
+        tw = {
+            "id": t.get("id") or t.get("tweetId"),
+            "url": t.get("url"),
+            "text": t.get("full_text") or t.get("text"),
+            "createdAt": t.get("created_at") or t.get("timestamp"),
+            "authorHandle": (t.get("author") or {}).get("screen_name"),
+            "authorName": (t.get("author") or {}).get("name"),
+            "likeCount": t.get("favorite_count") or t.get("likeCount") or 0,
+            "retweetCount": t.get("retweet_count") or 0,
+            "replyCount": t.get("reply_count"),
+            "quoteCount": t.get("quote_count"),
+            "views": t.get("view_count") or t.get("views"),
+            "lang": t.get("lang") or t.get("language"),
+            "raw": t,
+            # Ensure the tweet carries its own sentiment fields:
+            "sentiment": "Unanalyzed",
+            "sentiment_reason": None,
+        }
+        normalized.append(tw)
+
+    # ---- First-pass sentiment (bounded by sentiment_max) ----
+    analyzed = 0
+    pos = neu = neg = err = 0
+    firm = ticker
+
+    for tw in normalized:
+        if analyzed >= sentiment_max:
+            break
+        text = (tw.get("text") or "").strip()
+        if not text:
+            continue
+        sentiment, reason = analyze_sentiment(text, firm)
+        tw["sentiment"] = sentiment
+        tw["sentiment_reason"] = reason
+        analyzed += 1
+        if sentiment == "Positive":
+            pos += 1
+        elif sentiment == "Negative":
+            neg += 1
+        elif sentiment == "Neutral":
+            neu += 1
+        else:
+            err += 1
+
+    # ---- Weekly hits ----
+    start_dt = _parse_dt(start)
+    end_dt = _parse_dt(end)
+    start_w = _week_start(start_dt)
+    end_w = _week_start(end_dt)
+
+    weekly_counts = {}
+    for tw in normalized:
+        tw_dt = _parse_dt(tw["createdAt"])
+        w = _week_start(tw_dt).date().isoformat()
+        weekly_counts[w] = weekly_counts.get(w, 0) + 1
+
+    weekly_hits = []
+    w = start_w
+    while w <= end_w:
+        key = w.date().isoformat()
+        weekly_hits.append({"week_start": key, "count": weekly_counts.get(key, 0)})
+        w += timedelta(days=7)
+
+    # ---- Top lists (guarantee sentiment on items shown to user) ----
+    top_likes = sorted(normalized, key=lambda x: x["likeCount"], reverse=True)[:10]
+    top_retweets = sorted(normalized, key=lambda x: x["retweetCount"], reverse=True)[:10]
+
+    # def ensure_sentiment(tw_list):
+    #     nonlocal analyzed, pos, neu, neg, err
+    #     for tw in tw_list:
+    #         if tw["sentiment"] == "Unanalyzed":
+    #             text = (tw.get("text") or "").strip()
+    #             if not text:
+    #                 continue
+    #             sentiment, reason = analyze_sentiment(text, firm)
+    #             tw["sentiment"] = sentiment
+    #             tw["sentiment_reason"] = reason
+    #             analyzed += 1
+    #             if sentiment == "Positive":
+    #                 pos += 1
+    #             elif sentiment == "Negative":
+    #                 neg += 1
+    #             elif sentiment == "Neutral":
+    #                 neu += 1
+    #             else:
+    #                 err += 1
+
+    # ensure_sentiment(top_likes)
+    # ensure_sentiment(top_retweets)
+
+    # ---- Sentiment summary & map ----
+    sentiment_summary = {
+        "Positive": pos,
+        "Neutral": neu,
+        "Negative": neg,
+        "Errors": err,
+        "Analyzed Count": analyzed
+    }
+    sentiment_map = {tw["id"]: tw["sentiment"] for tw in normalized if tw.get("id")}
+
+    return {
+        "total_hits": len(normalized),
+        "weekly_hits": weekly_hits,
+        "tweets": normalized,        # each tweet carries sentiment + reason
+        "top_likes": top_likes,      # items guaranteed to have sentiment
+        "top_retweets": top_retweets,# items guaranteed to have sentiment
+        "sentiment_summary": sentiment_summary,
+        "sentiment_map": sentiment_map
+    }
 
 
 
@@ -126,10 +422,24 @@ def fix_html_with_embedded_markdown(text):
 
     return text
 
+def clean_embedded_markdown(html: str) -> str:
+    if not html:
+        return html
+    # Skip if it looks like fully valid <html> doc and you trust the model
+    # Otherwise, fix inline markdown markers
+    html = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', html)
+    html = re.sub(r'__(.+?)__', r'<strong>\1</strong>', html)
+    html = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<em>\1</em>', html)
+    html = re.sub(r'(?<!_)_(?!_)(.+?)(?<!_)_(?!_)', r'<em>\1</em>', html)
+    return html
+
 
 def stock_page():
-    import streamlit as st
-    from bs4 import BeautifulSoup
+
+    st.set_page_config(
+        layout="wide"
+    )
+    
 
     # Initialize session state
     if "run_analysis_complete" not in st.session_state:
@@ -158,6 +468,26 @@ def stock_page():
         technical_analysis = st.checkbox("Technical Analysis", help="Select to run technical analysis indicators")
         news_and_events = st.checkbox("News and Events", help="Get recent news and event analysis for the company")
         fundamental_analysis = st.checkbox("Fundamental Analysis", help="Select to upload a file for fundamental analysis")
+
+        media_only = False
+        twitter_only = False
+
+        if news_and_events:
+            selected_sources = st.multiselect(
+                "Select sources",
+                options=["Media/News", "Twitter"],
+                default=["Media/News", "Twitter"],  # preselect both; change if you prefer
+                help="Pick one or both sources for analysis"
+            )
+
+            media_only = ("Media/News" in selected_sources)
+            twitter_only = ("Twitter" in selected_sources)
+
+        selected_types = [
+            technical_analysis, 
+            fundamental_analysis, 
+            news_and_events
+        ]
 
         selected_types = [
             technical_analysis, 
@@ -538,7 +868,7 @@ def stock_page():
             html_output_no_fix = clean_html_response(summary)
             html_output = fix_html_with_embedded_markdown(html_output_no_fix)
             update_progress(progress_bar, 100, 100, "Finished...")
-            st.components.v1.html(html_output, height=700, scrolling=True)
+            st.components.v1.html(html_output, height=700, width=1400, scrolling=True)
             soup = BeautifulSoup(html_output, "html.parser")
             plain_text = soup.get_text(separator='\n')
             #print(gathered_data)
@@ -592,41 +922,239 @@ def stock_page():
                 st.session_state["run_analysis_complete"] = False
                 st.experimental_rerun()
 
-        # Only News
+        # --- inside your News-only block ---
+# Only News
         elif news_and_events:
-            with st.expander("Downloading Data"):
-                update_progress(progress_bar, 30, 30, "Gathering News Data...")    
-                txt_summary = generate_company_news_message(company, timeframe)
-                update_progress(progress_bar, 50, 50, "Analysing News Data...")
-                txt_summary = format_news(txt_summary)
-            gathered_data = {
-                "Ticker": ticker,
-                "Company": company,
-                "Timeframe": timeframe,
-                "News and Events Summary": txt_summary,
-            }
-            txt_ovr = txt_conclusion2(gathered_data)
-            html_output_no_fix = clean_html_response(txt_ovr)
-            html_output = fix_html_with_embedded_markdown(html_output_no_fix)
-            st.components.v1.html(html_output, height=700, scrolling=True)
-            soup = BeautifulSoup(html_output, "html.parser")
-            plain_text = soup.get_text(separator='\n')
-            st.session_state["gathered_data"] = gathered_data
-            st.session_state["analysis_complete"] = True
-            st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
-            if "html_output" not in st.session_state:
-                st.session_state["html_output"] = html_output
-            if "plain_text" not in st.session_state:
-                st.session_state["plain_text"] = plain_text
-            st.download_button("Download as HTML", st.session_state["html_output"], "stock_analysis_summary.html", "text/html")
-            st.download_button("Download as Plain Text", st.session_state["plain_text"], "stock_analysis_summary.txt", "text/plain")
-            if st.button("Run Another Stock"):
-                st.session_state.technical_analysis = False
-                st.session_state.news_and_events = False
-                st.session_state["run_analysis_complete"] = False
-                st.experimental_rerun()
+            if twitter_only:
+                with st.expander("Downloading Data"):
+                    # Add your code here, for example:
+                    st.write("Downloading data, please wait...")
+                    update_progress(progress_bar, 40, 40, "Gathering Twitter/X Data...")
+                    try:
+                        twitter_result = analyze_company_tweets(
+                            company_name=company,
+                            ticker=ticker,
+                            timeframe=timeframe
+                        )
+                    except Exception as e:
+                        st.warning(f"Twitter/X fetch skipped: {e}")
+                        twitter_result = {
+                            "company": company,
+                            "ticker": ticker,
+                            "timeframe": timeframe,
+                            "monthly_summary": {},
+                            "top10_likes": [],
+                            "top10_views": [],
+                            "top10_retweets": [],
+                            "overall_sentiment_score": 0.0,
+                            "total_positive": 0,
+                            "total_negative": 0,
+                            "total_neutral": 0,
+                            "total_tweets": 0,
+                        }
 
+                    # Twitter-only gathered_data
+                    gathered_data = {
+                        "Ticker": twitter_result.get("ticker"),
+                        "Company": twitter_result.get("company"),
+                        "Timeframe": twitter_result.get("timeframe"),
+                        "Twitter Total Hits": twitter_result.get("total_tweets", 0),
+                        "Monthly Data": twitter_result.get("monthly_summary", {}),
+                        "Overall Sentiment Score": twitter_result.get("overall_sentiment_score", 0.0),
+                        "Positive Tweets": twitter_result.get("total_positive", 0),
+                        "Negative Tweets": twitter_result.get("total_negative", 0),
+                        "Neutral Tweets": twitter_result.get("total_neutral", 0),
+                        "Top Tweets by Likes": [
+                            {
+                                "likes": t.get("likeCount"),
+                                "createdAt": t.get("createdAt"),
+                                "author": t.get("author", {}).get("userName"),
+                                "text": t.get("text"),
+                                "url": t.get("url"),
+                                "sentiment": t.get("sentiment"),
+                            }
+                            for t in twitter_result.get("top10_likes", [])[:10]
+                        ],
+                        "Top Tweets by Retweets": [
+                            {
+                                "retweets": t.get("retweetCount"),
+                                "createdAt": t.get("createdAt"),
+                                "author": t.get("author", {}).get("userName"),
+                                "text": t.get("text"),
+                                "url": t.get("url"),
+                                "sentiment": t.get("sentiment"),
+                            }
+                            for t in twitter_result.get("top10_retweets", [])[:10]
+                        ],
+                        "Top Tweets by Views": [
+                            {
+                                "views": t.get("viewCount"),
+                                "createdAt": t.get("createdAt"),
+                                "author": t.get("author", {}).get("userName"),
+                                "text": t.get("text"),
+                                "url": t.get("url"),
+                                "sentiment": t.get("sentiment"),
+                            }
+                            for t in twitter_result.get("top10_views", [])[:10]
+                        ],
+                    }
 
+                txt_ovr = twitter_summary(gathered_data)
+                html_output_no_fix = clean_html_response(txt_ovr)
+                html_output = clean_embedded_markdown(html_output_no_fix)
+                st.components.v1.html(html_output, height=700, width=1400, scrolling=True)
+            
+            if media_only:
+                timeframe_map = {
+                    "3 Months": "3m",
+                    "6 Months": "6m",
+                    "1 Year": "1y"
+                }
+
+                timeframe_key = timeframe_map.get(timeframe)
+                with st.expander("Downloading Data"):
+                    update_progress(progress_bar, 30, 30, "Gathering News Data...")
+                    news_data = get_news_sentiment_gathered_data(
+                        ticker=ticker,
+                        period=timeframe_key,
+                        company_name=company,
+                        alpha_vantage_api_key=st.secrets["ALPHA_VANTAGE_API_KEY"],
+                        openai_api_key=st.secrets["OPENAI_API_KEY"],
+                    )
+                    update_progress(progress_bar, 50, 50, "Analysing News Data...")
+
+                news_html = generate_news_html(news_data)
+                html_output_no_fix = clean_html_response(news_html)
+                html_output = clean_embedded_markdown(html_output_no_fix)
+                update_progress(progress_bar, 100, 100, "")
+                st.components.v1.html(html_output, height=700, width=1400, scrolling=True)
+
+            if twitter_only and media_only:
+                with st.expander("Downloading Data"):
+                    update_progress(progress_bar, 30, 30, "Gathering News Data...")
+                    txt_summary = generate_company_news_message(company, timeframe)
+
+                    # === NEW: Pull Twitter/X data for the same timeframe ===
+                    update_progress(progress_bar, 40, 40, "Gathering Twitter/X Data...")
+                    # Map your UI timeframe to the function's period format
+                    tf_map = {
+                        "7 Days": "7d",
+                        "14 Days": "14d",
+                        "30 Days": "30d",
+                        "1 Month": "1m",
+                        "3 Months": "3m",
+                        "6 Months": "6m",
+                        "1 Year": "1y",
+                    }
+                    period = tf_map.get(timeframe, "30d")
+
+                    twitter_result = None
+                    try:
+                        twitter_result = fetch_ticker_tweets(
+                            token=st.secrets["APIFY_API_TOKEN"],
+                            ticker=company,
+                            time_period=period,
+                            max_items=300,          # adjust as you like
+                            sort="Latest",
+                            tweet_language="en",
+                        )
+                    except Exception as e:
+                        st.warning(f"Twitter/X fetch skipped: {e}")
+                        twitter_result = {"total_hits": 0, "tweets": [], "top_likes": [], "top_retweets": []}
+
+                    # Optional: brief text summary snippet about tweets to blend into your narrative
+                    tweets_hits = twitter_result.get("total_hits", 0)
+                    top_like = twitter_result.get("top_likes", [])[:1]
+                    top_rt = twitter_result.get("top_retweets", [])[:1]
+                    twitter_blurb = f"\n\n**Twitter/X pulse** for ${ticker} in the last *{timeframe}*: {tweets_hits} tweets found."
+                    if top_like:
+                        twitter_blurb += f" Most-liked tweet had **{top_like[0].get('likeCount', 0)}** likes."
+                    if top_rt:
+                        twitter_blurb += f" Most-retweeted tweet had **{top_rt[0].get('retweetCount', 0)}** retweets."
+
+                    # Fold that into your news text before formatting
+                    txt_summary = txt_summary + "\n" + twitter_blurb
+
+                    update_progress(progress_bar, 50, 50, "Analysing News Data...")
+                    txt_summary = format_news(txt_summary)
+
+                # Include Twitter/X results in gathered_data for downstream use/exports
+                gathered_data = {
+                    "Ticker": ticker,
+                    "Company": company,
+                    "Timeframe": timeframe,
+                    "News and Events Summary": txt_summary,
+                    "Twitter Total Hits": twitter_result.get("total_hits", 0),
+                    "Top Tweets by Likes": [
+                        {
+                            "likes": t.get("likeCount"),
+                            "createdAt": t.get("createdAt"),
+                            "author": t.get("authorHandle"),
+                            "text": t.get("text"),
+                            "url": t.get("url"),
+                        }
+                        for t in twitter_result.get("top_likes", [])[:10]
+                    ],
+                    "Top Tweets by Retweets": [
+                        {
+                            "retweets": t.get("retweetCount"),
+                            "createdAt": t.get("createdAt"),
+                            "author": t.get("authorHandle"),
+                            "text": t.get("text"),
+                            "url": t.get("url"),
+                        }
+                        for t in twitter_result.get("top_retweets", [])[:10]
+                    ],
+                }
+
+                # === Render your existing HTML summary ===
+                txt_ovr = txt_conclusion2(gathered_data)
+                html_output_no_fix = clean_html_response(txt_ovr)
+                html_output = clean_embedded_markdown(html_output_no_fix)
+                st.components.v1.html(html_output, height=700, scrolling=True)
+
+                # keep your existing export + session state handling
+                soup = BeautifulSoup(html_output, "html.parser")
+                plain_text = soup.get_text(separator='\n')
+                st.session_state["gathered_data"] = gathered_data
+                st.session_state["analysis_complete"] = True
+                st.success("Stock analysis completed! You can now proceed to the AI Chatbot.")
+                if "html_output" not in st.session_state:
+                    st.session_state["html_output"] = html_output
+                if "plain_text" not in st.session_state:
+                    st.session_state["plain_text"] = plain_text
+                st.download_button("Download as HTML", st.session_state["html_output"], "stock_analysis_summary.html", "text/html")
+                st.download_button("Download as Plain Text", st.session_state["plain_text"], "stock_analysis_summary.txt", "text/plain")
+                if st.button("Run Another Stock"):
+                    st.session_state.technical_analysis = False
+                    st.session_state.news_and_events = False
+                    st.session_state["run_analysis_complete"] = False
+                    st.experimental_rerun()
+
+def generate_news_html(gathered_data):
+    # Use the system prompt and gathered data to generate the news HTML
+    news_system_prompt = system_prompt_html
+
+    user_message = f"The data to analyse: {json.dumps(gathered_data)}"
+    
+    # Call Claude API to generate the HTML with progress indicator
+    with st.spinner("Generating investment analysis..."):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4.1",  # Use the appropriate Claude model
+                messages=[
+                    {"role": "system", "content": news_system_prompt},
+                    {"role": "user", "content": user_message}
+                ]
+            )
+            
+            # Extract the response content
+            html_content = response.choices[0].message.content
+            return html_content
+            
+        except Exception as e:
+            st.error(f"Error generating analysis: {e}")
+            return None
 
 def convert_to_raw_text(text):
     # Remove markdown headers (e.g., ###, ##, #)
@@ -1960,6 +2488,23 @@ def txt_conclusion(news_summary,company_name):
     response = chat_completion.choices[0].message.content
     return response 
 
+def twitter_summary(gathered_data):
+    system_prompt = twitter_system_prompt
+
+    user_message = f"The data to analyse: {json.dumps(gathered_data)}"
+
+    chat_completion = client.chat.completions.create(
+        model="gpt-4.1",
+        messages=[
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_message }
+        ]
+        
+    )
+
+    response = chat_completion.choices[0].message.content
+    return response
+
 def txt_conclusion2(gathered_data):
     today = date.today()
     formatted = today.strftime('%Y-%m-%d')
@@ -2166,6 +2711,253 @@ def txt_conclusion2(gathered_data):
     response = chat_completion.choices[0].message.content
     return response 
 
+def txt_twitter_conclusion(gathered_data):
+    today = date.today()
+    formatted = today.strftime('%Y-%m-%d')
+
+    # If you don't have a global `client`, uncomment:
+    # if openai_api_key:
+    #     client = OpenAI(api_key=openai_api_key)
+    # else:
+    #     raise ValueError("OpenAI API key required if no global client is set.")
+
+    system_prompt = """ As an AI assistant dedicated to supporting traders and investors, your task is to produce a structured, detailed market analysis in valid HTML format. Focus exclusively on synthesizing recent news and events related to the selected stock and its sector. Do not include technical or fundamental analysis.
+
+    The user will provide a JSON object containing all the data needed for analysis, including:
+    - Ticker: The stock ticker symbol
+    - Company: The company name
+    - Timeframe: The analysis timeframe
+    - News and Events Summary (NewsData): A summary of all significant news and events for the company and its sector.
+    - SignificantEvents: A list of recent, impactful events affecting the company or its market environment.
+    - Twitter Total Hits: Total tweets found in the timeframe (optional)
+    - Top Tweets by Likes: Array of objects with fields {likes, retweets, createdAt, author, text, url, sentiment?, reason?} (optional)
+    - Top Tweets by Retweets: Same shape as above (optional)
+    - Twitter Sentiment Summary: Object with {Positive, Neutral, Negative, Analyzed Count} (optional)
+
+    You must parse this JSON data and use it to create a comprehensive investment report formatted as HTML.
+
+    **Instructions:**
+    - Parse the provided JSON and use it to replace placeholders in the HTML template below.
+    - Extract Ticker, Company, and Timeframe.
+    - Use News and Events Summary for the News and Events Analysis section.
+    - Use SignificantEvents for the 'Recent Significant Events' list.
+    - If Twitter/X data is provided, render the 'Twitter/X Pulse' section:
+        - Show a one-line summary including total hits and the sentiment roll-up (Positive / Neutral / Negative).
+        - Build two compact tables:
+            1) Top Tweets by Likes
+            2) Top Tweets by Retweets
+          Each table should include: Created At, Author, Likes, Retweets, Sentiment (if provided), a short snippet (truncate long text), and a link (url).
+        - If any Twitter fields are missing, include a brief note indicating data was unavailable.
+    - Generate a summary and investment recommendation (BUY, HOLD, or SELL) based exclusively on news and events (and Twitter/X investor sentiment if present). Justify clearly by referencing the reported news, events, and sentiment signals.
+    - The 'Integrated Analysis' should synthesize all signals into a final outlook and recommendation.
+    - Return the complete HTML document. No Markdown or plaintext. Do not omit required sections even if data is sparse.
+
+    Your output must use <section>, <h2>, <h3>, <ul>, <li>, <table>, <thead>, <tbody>, <tr>, <th>, <td>, and <p> tags where appropriate. Use <strong> for key points.
+
+    **Follow this professional HTML template exactly, replacing the placeholders with values parsed from the provided JSON:**
+
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Comprehensive News & Events Investment Analysis</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                line-height: 1.6;
+                color: #333;
+                max-width: 1200px;
+                margin: 0 auto;
+                padding: 0px;
+                background-color: transparent;
+            }
+            .container {
+                background-color: #fff;
+                border-radius: 8px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+                padding: 30px;
+                margin-bottom: 30px;
+            }
+            h1 {
+                color: #2c3e50;
+                border-bottom: 3px solid #3498db;
+                padding-bottom: 10px;
+                margin-top: 0;
+            }
+            h2 {
+                color: #2c3e50;
+                border-left: 5px solid #3498db;
+                padding-left: 15px;
+                margin-top: 30px;
+                background-color: #f8f9fa;
+                padding: 10px 15px;
+                border-radius: 0 5px 5px 0;
+            }
+            h3 {
+                color: #2c3e50;
+                margin-top: 20px;
+                border-bottom: 1px dashed #ddd;
+                padding-bottom: 5px;
+            }
+            .section {
+                margin-bottom: 30px;
+                padding: 20px;
+                background-color: #f9f9f9;
+                border-radius: 5px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            }
+            .recommendation {
+                font-weight: bold;
+                font-size: 1.1em;
+                padding: 15px;
+                margin: 15px 0;
+                border-radius: 5px;
+                text-align: center;
+            }
+            .buy {
+                background-color: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+            .hold {
+                background-color: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeeba;
+            }
+            .sell {
+                background-color: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }
+            .summary-box {
+                background-color: #e8f4fd;
+                border-left: 4px solid #3498db;
+                padding: 15px;
+                margin: 20px 0;
+                border-radius: 0 5px 5px 0;
+            }
+            .timeframe {
+                font-weight: bold;
+                color: #2c3e50;
+                background-color: #e8f4fd;
+                padding: 5px 10px;
+                border-radius: 3px;
+                display: inline-block;
+                margin-bottom: 15px;
+            }
+            .footnote {
+                font-size: 0.9em;
+                font-style: italic;
+                color: #6c757d;
+                margin-top: 30px;
+                padding-top: 15px;
+                border-top: 1px solid #dee2e6;
+            }
+            .highlight {
+                background-color: #ffeaa7;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 10px;
+            }
+            th, td {
+                border: 1px solid #e2e2e2;
+                padding: 8px;
+                text-align: left;
+                vertical-align: top;
+            }
+            thead th {
+                background-color: #f1f5f9;
+            }
+            .muted { color: #6c757d; font-style: italic; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Comprehensive News & Events Investment Analysis: [TICKER_PLACEHOLDER] - [COMPANY_PLACEHOLDER]</h1>
+            <div class="timeframe">Analysis Timeframe: [TIMEFRAME_PLACEHOLDER]</div>
+            
+            <section class="section">
+                <h2>Executive Summary</h2>
+                <div class="summary-box">
+                    <p>[SUMMARY_PLACEHOLDER]</p>
+                </div>
+                <div class="recommendation [RECOMMENDATION_CLASS_PLACEHOLDER]">
+                    RECOMMENDATION: [RECOMMENDATION_PLACEHOLDER]
+                    <br>
+                    <span style="font-size:0.95em; font-weight:normal;">
+                    <strong>Note:</strong> This recommendation is based solely on the latest news, event signals, and (if provided) investor sentiment from Twitter/X.
+                    </span>
+                </div>
+            </section>
+            
+            <section class="section">
+                <h2>News and Events Analysis</h2>
+                <div id="news-analysis">
+                    [NEWS_ANALYSIS_PLACEHOLDER]
+                </div>
+                
+                <h3>Recent Significant Events</h3>
+                <ul>
+                    [SIGNIFICANT_EVENTS_PLACEHOLDER]
+                </ul>
+            </section>
+
+            <section class="section">
+                <h2>Twitter/X Pulse</h2>
+                <p>[TWITTER_SUMMARY_PLACEHOLDER]</p>
+
+                <h3>Top Tweets by Likes</h3>
+                <div>
+                    [TWITTER_TABLE_LIKES_PLACEHOLDER]
+                </div>
+
+                <h3>Top Tweets by Retweets</h3>
+                <div>
+                    [TWITTER_TABLE_RETWEETS_PLACEHOLDER]
+                </div>
+
+                <p class="muted">[TWITTER_SENTIMENT_SUMMARY_PLACEHOLDER]</p>
+            </section>
+            
+            <section class="section">
+                <h2>Integrated Analysis</h2>
+                <p>[INTEGRATED_ANALYSIS_PLACEHOLDER]</p>
+                <h3>Investment Recommendation</h3>
+                <div class="summary-box">
+                    <p><strong>Recommendation:</strong> [DETAILED_RECOMMENDATION_PLACEHOLDER]</p>
+                    <p><strong>Entry Points:</strong> [ENTRY_POINTS_PLACEHOLDER]</p>
+                    <p><strong>Exit Strategy:</strong> [EXIT_STRATEGY_PLACEHOLDER]</p>
+                    <p><strong>Risk Management:</strong> [RISK_MANAGEMENT_PLACEHOLDER]</p>
+                </div>
+            </section>
+            
+            <div class="footnote"> """ f"""
+                <p>This investment analysis was generated on {formatted}, and incorporates available news, event, and investor sentiment data (if provided) as of this date. All investment decisions should be made in conjunction with personal financial advice and risk tolerance assessments.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    # Give the model the entire gathered_data JSON as the single user message
+    user_message = f"The data to analyse: {json.dumps(gathered_data)}"
+
+    chat_completion = client.chat.completions.create(
+        model="gpt-4.1",
+        messages=[
+            { "role": "system", "content": system_prompt },
+            { "role": "user", "content": user_message }
+        ]
+        
+    )
+
+    response = chat_completion.choices[0].message.content
+    return response
     
 
 def merge_news_and_technical_analysis_summary(gathered_data):
@@ -4174,3 +4966,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
