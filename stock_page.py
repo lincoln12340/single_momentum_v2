@@ -435,9 +435,7 @@ def clean_embedded_markdown(html: str) -> str:
 
 def stock_page():
 
-    st.set_page_config(
-        layout="wide"
-    )
+    
     
 
     # Initialize session state
