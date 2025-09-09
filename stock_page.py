@@ -4719,6 +4719,8 @@ def calculate_technical_indicators(data, ticker, weight_choice=None):
     Returns:
         Tuple: (results dict, recent_data, availability, scores, weighted_score)
     """
+
+    st.write(data)
     short_term_weights = {
     "sma": 0.1,
     "rsi": 0.3,
